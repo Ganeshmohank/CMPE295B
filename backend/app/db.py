@@ -38,3 +38,6 @@ async def ensure_indexes() -> None:
     await db.processing_logs.create_index([("timestamp", -1)])
     await db.meeting_participants.create_index([("meeting_id", 1), ("participant_id", 1)], unique=True)
     await db.participants.create_index("email", unique=True, sparse=True)
+    await db.execution_logs.create_index("action_item_id")
+    await db.execution_logs.create_index("meeting_id")
+    await db.execution_logs.create_index([("created_at", -1)])

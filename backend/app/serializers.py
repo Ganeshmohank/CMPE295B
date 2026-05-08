@@ -94,3 +94,10 @@ def action_item_review_detail_row(doc: dict) -> dict:
     base["participants"] = doc["participants"]
     base["processing_logs"] = [processing_log_to_out(l) for l in doc["processing_logs"]]
     return base
+
+
+def action_item_detail_row(doc: dict) -> dict:
+    """For orchestrator detail page - any status."""
+    base = action_item_review_row(doc)
+    base["project_theme"] = doc.get("project_theme")
+    return base

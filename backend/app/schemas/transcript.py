@@ -32,3 +32,7 @@ class TranscriptOut(BaseModel):
     segments: list[TranscriptSegment] | None = None
     transcript_length: int
     created_at: datetime
+
+
+class TranscriptUpdate(BaseModel):
+    raw_text: str | None = None

@@ -224,24 +224,27 @@ export function ReviewQueuePage() {
                     >
                       Review in meeting
                     </Link>
-                    <button
-                      type="button"
-                      className="btn btn-primary btn--sm"
-                      disabled={busy !== null}
-                      onClick={() =>
-                        run(`bulk-a-${meetingId}`, () => api.bulkApproveMeeting(meetingId), meetingId)
-                      }
-                    >
-                      Approve all
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-ghost btn--sm btn--danger-outline"
-                      disabled={busy !== null}
-                      onClick={() => openRejectConfirm(meetingId)}
-                    >
-                      Reject all
-                    </button>
+                    <div className="review-meeting__bulk-actions">
+                      <span className="review-meeting__bulk-label muted">Bulk:</span>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn--sm"
+                        disabled={busy !== null}
+                        onClick={() =>
+                          run(`bulk-a-${meetingId}`, () => api.bulkApproveMeeting(meetingId), meetingId)
+                        }
+                      >
+                        {busy === `bulk-a-${meetingId}` ? 'Approving...' : 'Approve all'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn--sm btn--danger-outline"
+                        disabled={busy !== null}
+                        onClick={() => openRejectConfirm(meetingId)}
+                      >
+                        Reject all
+                      </button>
+                    </div>
                   </div>
                 </header>
                 <ul className="review-item-list">
@@ -299,14 +302,38 @@ export function ReviewQueuePage() {
                             style={{ width: `${Math.round(it.confidence * 100)}%` }}
                           />
                         </div>
-                        <div className="review-item__footer review-item__footer--hint muted">
-                          <Link to={`/meetings/${meetingId}#action-review`} className="review-item__inline-link">
-                            Edit &amp; bulk approve in meeting
-                          </Link>
-                          <span aria-hidden> · </span>
-                          <Link to={`/review/item/${it.id}`} className="review-item__inline-link">
-                            Open detail (logs)
-                          </Link>
+                        <div className="review-item__footer">
+                          <div className="review-item__actions">
+                            <button
+                              type="button"
+                              className="btn btn-primary btn--sm"
+                              disabled={busy !== null}
+                              onClick={() =>
+                                run(`approve-${it.id}`, () => api.approveItem(it.id), meetingId)
+                              }
+                            >
+                              {busy === `approve-${it.id}` ? 'Approving...' : 'Approve'}
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn--sm btn--danger-outline"
+                              disabled={busy !== null}
+                              onClick={() =>
+                                run(`reject-${it.id}`, () => api.rejectItem(it.id), meetingId)
+                              }
+                            >
+                              {busy === `reject-${it.id}` ? 'Rejecting...' : 'Reject'}
+                            </button>
+                          </div>
+                          <div className="review-item__links muted">
+                            <Link to={`/action-items/${it.id}`} className="review-item__inline-link">
+                              Open detail
+                            </Link>
+                            <span aria-hidden> · </span>
+                            <Link to={`/meetings/${meetingId}#action-item-${it.id}`} className="review-item__inline-link">
+                              View in meeting
+                            </Link>
+                          </div>
                         </div>
                       </article>
                     </li>

@@ -180,3 +180,25 @@ export interface MeetingDetailResponse {
   processing_logs: ProcessingLogOut[]
   related_links?: RelatedLinkOut[]
 }
+
+export interface ActivityLogItem {
+  id: string
+  action_item_id: string
+  meeting_id: string
+  meeting_title: string
+  action_item_preview: string
+  action: string
+  status: string
+  message: string
+  details: Record<string, unknown> | null
+  triggered_by: string
+  created_at: string
+  updated_at: string | null
+}
+
+export interface ActivityPage {
+  items: ActivityLogItem[]
+  total: number
+  page: number
+  page_size: number
+}

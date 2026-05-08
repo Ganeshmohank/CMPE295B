@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { NavSidebar } from './components/NavSidebar'
+import { ActionItemDetailPage } from './pages/ActionItemDetailPage'
 import { DashboardHome } from './pages/DashboardHome'
+import { ActivityPage } from './pages/ActivityPage'
 import { LogsPage } from './pages/LogsPage'
 import { MeetingDetailPage } from './pages/MeetingDetailPage'
 import { MeetingsList } from './pages/MeetingsList'
@@ -21,8 +23,10 @@ function AppMain() {
         <Route path="/" element={<DashboardHome />} />
         <Route path="/meetings" element={<MeetingsList />} />
         <Route path="/meetings/:id" element={<MeetingDetailPage />} />
+        <Route path="/action-items/:itemId" element={<ActionItemDetailPage />} />
         <Route path="/review" element={<ReviewQueuePage />} />
         <Route path="/review/item/:itemId" element={<ReviewItemPage />} />
+        <Route path="/activity" element={<ActivityPage />} />
         <Route path="/logs" element={<LogsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

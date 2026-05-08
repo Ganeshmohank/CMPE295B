@@ -183,11 +183,9 @@ export function MeetingDetailPage() {
   const [actionBusy, setActionBusy] = useState<string | null>(null)
   const [actionMsg, setActionMsg] = useState<string | null>(null)
   const [bulkConfirmKind, setBulkConfirmKind] = useState<'approve' | 'reject' | null>(null)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editDesc, setEditDesc] = useState('')
-  // const [editOwner, setEditOwner] = useState('')
-  // const [editDue, setEditDue] = useState('')
-  // const [editPriority, setEditPriority] = useState<Priority>('medium')
+  const [transcriptText, setTranscriptText] = useState('')
+  const [transcriptOriginal, setTranscriptOriginal] = useState('')
+  const [transcriptSaving, setTranscriptSaving] = useState(false)
   const comboboxRef = useRef<HTMLDivElement>(null)
 
   const pendingActionCount = useMemo(() => {
@@ -209,6 +207,12 @@ export function MeetingDetailPage() {
     let alive = true
     setErr(null)
 
+    const initializeEditableFields = (d: MeetingDetailResponse) => {
+      const rawText = d.transcript?.raw_text ?? ''
+      setTranscriptText(rawText)
+      setTranscriptOriginal(rawText)
+    }
+
     const cached = readMeetingDetailCache(id)
     if (cached) {
       setData(cached)
@@ -216,6 +220,7 @@ export function MeetingDetailPage() {
       setSelectedProjectId(cached.meeting.project_id ?? null)
       setCtxDev(cached.meeting.context_developer ?? '')
       setCtxPm(cached.meeting.context_pm ?? '')
+      initializeEditableFields(cached)
       return () => {
         alive = false
       }
@@ -234,6 +239,7 @@ export function MeetingDetailPage() {
         setSelectedProjectId(d.meeting.project_id ?? null)
         setCtxDev(d.meeting.context_developer ?? '')
         setCtxPm(d.meeting.context_pm ?? '')
+        initializeEditableFields(d)
       })
       .catch((e: Error) => {
         if (alive) {
@@ -462,41 +468,18 @@ export function MeetingDetailPage() {
     }
   }
 
-  function openActionEdit(a: ActionItemOut) {
-    if (a.status !== 'pending_review') return
-    setEditingId(a.id)
-    setEditDesc(a.description)
-    // setEditOwner(a.owner_name ?? '')
-    // setEditDue(a.due_date ? String(a.due_date).slice(0, 10) : '')
-    // setEditPriority(a.priority)
-    setActionMsg(null)
-  }
-
-  function cancelActionEdit() {
-    setEditingId(null)
-  }
-
-  async function saveActionEdit() {
-    if (!id || !editingId) return
-    setActionBusy('save')
-    setActionMsg(null)
+  async function saveTranscript() {
+    if (!id || transcriptText === transcriptOriginal) return
+    setTranscriptSaving(true)
     try {
-      await api.patchActionItem(editingId, {
-        description: editDesc.trim(),
-        // owner_name: editOwner.trim() === '' ? null : editOwner.trim(),
-        // due_date: editDue === '' ? null : editDue,
-        // priority: editPriority,
-      })
+      await api.patchTranscript(id, { raw_text: transcriptText })
+      setTranscriptOriginal(transcriptText)
       notifySummaryStale()
       invalidateMeetingDetailCache(id)
-      const d = await api.meetingDetail(id)
-      writeMeetingDetailCache(id, d)
-      setData(d)
-      setEditingId(null)
     } catch (e) {
-      setActionMsg(e instanceof Error ? e.message : String(e))
+      console.error('Failed to save transcript:', e)
     } finally {
-      setActionBusy(null)
+      setTranscriptSaving(false)
     }
   }
 
@@ -604,9 +587,35 @@ export function MeetingDetailPage() {
         <div className="detail-page__split">
         <div className="detail-page__primary">
         <section className="detail-block detail-block--transcript panel panel--elevated">
-          <h3 className="panel__h">Transcript</h3>
+          <div className="panel__h-row">
+            <h3 className="panel__h">Transcript</h3>
+            {transcript && transcriptText !== transcriptOriginal && (
+              <button
+                type="button"
+                className="inline-save-btn"
+                disabled={transcriptSaving}
+                onClick={() => void saveTranscript()}
+                title="Save transcript"
+                aria-label="Save transcript"
+              >
+                {transcriptSaving ? (
+                  <span className="inline-save-spinner" />
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                    <polyline points="17 21 17 13 7 13 7 21" />
+                    <polyline points="7 3 7 8 15 8" />
+                  </svg>
+                )}
+              </button>
+            )}
+          </div>
           {transcript ? (
-            <div className="transcript-box">{transcript.raw_text}</div>
+            <textarea
+              className="transcript-box transcript-box--editable"
+              value={transcriptText}
+              onChange={(e) => setTranscriptText(e.target.value)}
+            />
           ) : (
             <p className="muted">No transcript.</p>
           )}
@@ -656,139 +665,50 @@ export function MeetingDetailPage() {
               <ul className="detail-action-list detail-action-list--cards detail-action-list--compact">
                 {action_items.map((a) => (
                   <li key={a.id} id={`action-item-${a.id}`} className="detail-action-li detail-action-li--compact">
-                    {editingId === a.id ? (
-                      <>
-                        <div className="detail-action-li__head detail-action-li__head--edit">
-                          <div className="detail-action-li__badges">
-                            <span className="action-item-status action-item-status--pending">
-                              {actionStatusLabel(a.status)}
-                            </span>
-                            {id && (
-                              <Link
-                                className="action-item-queue-link"
-                                to={`/review?meeting=${encodeURIComponent(id)}`}
-                              >
-                                In review queue →
-                              </Link>
-                            )}
-                          </div>
-                          <span className="detail-action-li__model muted">
-                            model {(a.confidence * 100).toFixed(0)}%
-                          </span>
-                        </div>
-                        <div className="action-item-edit-form action-item-edit-form--compact">
-                        <label className="field-label" htmlFor={`act-desc-${a.id}`}>
-                          Description
-                        </label>
-                        <textarea
-                          id={`act-desc-${a.id}`}
-                          className="field-input action-item-edit-form__textarea"
-                          rows={2}
-                          value={editDesc}
-                          onChange={(e) => setEditDesc(e.target.value)}
-                        />
-                        {/*
-                        <label className="field-label" htmlFor={`act-owner-${a.id}`}>
-                          Owner
-                        </label>
-                        <input
-                          id={`act-owner-${a.id}`}
-                          className="field-input"
-                          value={editOwner}
-                          onChange={(e) => setEditOwner(e.target.value)}
-                          placeholder="Name"
-                        />
-                        <label className="field-label" htmlFor={`act-due-${a.id}`}>
-                          Due date
-                        </label>
-                        <input
-                          id={`act-due-${a.id}`}
-                          className="field-input"
-                          type="date"
-                          value={editDue}
-                          onChange={(e) => setEditDue(e.target.value)}
-                        />
-                        <label className="field-label" htmlFor={`act-prio-${a.id}`}>
-                          Priority
-                        </label>
-                        <select
-                          id={`act-prio-${a.id}`}
-                          className="field-input"
-                          value={editPriority}
-                          onChange={(e) => setEditPriority(e.target.value as Priority)}
+                    <div className="detail-action-li__head">
+                      <div className="detail-action-li__badges">
+                        <span
+                          className={
+                            a.status === 'pending_review'
+                              ? 'action-item-status action-item-status--pending'
+                              : a.status === 'approved'
+                                ? 'action-item-status action-item-status--ok'
+                                : 'action-item-status action-item-status--muted'
+                          }
                         >
-                          {PRIORITY_OPTIONS.map((p) => (
-                            <option key={p} value={p}>
-                              {p}
-                            </option>
-                          ))}
-                        </select>
-                        */}
-                        <div className="action-item-edit-form__actions">
-                          <button
-                            type="button"
-                            className="btn btn-primary btn--sm"
-                            disabled={actionBusy !== null}
-                            onClick={() => void saveActionEdit()}
+                          {actionStatusLabel(a.status)}
+                        </span>
+                        {a.status === 'pending_review' && id && (
+                          <Link
+                            className="action-item-queue-link"
+                            to={`/review?meeting=${encodeURIComponent(id)}`}
                           >
-                            Save
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-ghost btn--sm"
-                            disabled={actionBusy !== null}
-                            onClick={cancelActionEdit}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="detail-action-li__head">
-                          <div className="detail-action-li__badges">
-                            <span
-                              className={
-                                a.status === 'pending_review'
-                                  ? 'action-item-status action-item-status--pending'
-                                  : a.status === 'approved'
-                                    ? 'action-item-status action-item-status--ok'
-                                    : 'action-item-status action-item-status--muted'
-                              }
-                            >
-                              {actionStatusLabel(a.status)}
-                            </span>
-                            {a.status === 'pending_review' && id && (
-                              <Link
-                                className="action-item-queue-link"
-                                to={`/review?meeting=${encodeURIComponent(id)}`}
-                              >
-                                In review queue →
-                              </Link>
-                            )}
-                          </div>
-                          <span className="detail-action-li__model muted">
-                            model {(a.confidence * 100).toFixed(0)}%
-                          </span>
-                          {a.status === 'pending_review' && (
-                            <button
-                              type="button"
-                              className="btn btn-ghost btn--sm detail-action-edit-btn detail-action-edit-btn--inline"
-                              disabled={actionBusy !== null}
-                              onClick={() => openActionEdit(a)}
-                            >
-                              Edit
-                            </button>
-                          )}
-                        </div>
-                        <p className="detail-action-desc detail-action-desc--compact">{a.description}</p>
-                        {a.source_snippet && (
-                          <p className="detail-action-snippet muted" title={a.source_snippet}>
-                            {a.source_snippet}
-                          </p>
+                            In review queue →
+                          </Link>
                         )}
-                      </>
+                      </div>
+                      <span className="detail-action-li__model muted">
+                        model {(a.confidence * 100).toFixed(0)}%
+                      </span>
+                      <Link
+                        to={`/action-items/${a.id}`}
+                        className="action-item-edit-icon"
+                        title="Edit & orchestrate"
+                        aria-label="Edit action item"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                          <path d="m15 5 4 4" />
+                        </svg>
+                      </Link>
+                    </div>
+                    <Link to={`/action-items/${a.id}`} className="detail-action-desc-link">
+                      <p className="detail-action-desc detail-action-desc--compact">{a.description}</p>
+                    </Link>
+                    {a.source_snippet && (
+                      <p className="detail-action-snippet muted" title={a.source_snippet}>
+                        {a.source_snippet}
+                      </p>
                     )}
                   </li>
                 ))}

@@ -10,6 +10,7 @@ from app.schemas.related_link import RelatedLinkOut
 from app.schemas.meeting import MeetingContextPatch, MeetingMetadata
 from app.schemas.common import parse_oid
 from app.schemas.participant import MeetingParticipantOut, MeetingTeamMemberCreate
+from app.schemas.transcript import TranscriptOut, TranscriptUpdate
 from app.serializers import (
     action_item_to_out,
     meeting_to_metadata,
@@ -88,6 +89,28 @@ async def post_meeting_team_member(
         body.email,
         body.add_to_linked_project,
     )
+
+
+@router.patch("/{meeting_id}/transcript", response_model=TranscriptOut)
+async def patch_transcript(meeting_id: str, body: TranscriptUpdate) -> TranscriptOut:
+    try:
+        oid = parse_oid(meeting_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail="Meeting not found") from e
+    m = await get_meeting_or_none(meeting_id)
+    if not m:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    transcript = await get_db().transcripts.find_one({"meeting_id": oid})
+    if not transcript:
+        raise HTTPException(status_code=404, detail="Transcript not found")
+    updates: dict = {"updated_at": datetime.now(timezone.utc)}
+    if body.raw_text is not None:
+        updates["raw_text"] = body.raw_text
+        updates["transcript_length"] = len(body.raw_text)
+    await get_db().transcripts.update_one({"_id": transcript["_id"]}, {"$set": updates})
+    fresh = await get_db().transcripts.find_one({"_id": transcript["_id"]})
+    assert fresh is not None
+    return TranscriptOut(**transcript_to_out(fresh))
 
 
 @router.get("/{meeting_id}", response_model=MeetingDetailResponse)

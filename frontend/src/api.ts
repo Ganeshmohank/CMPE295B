@@ -20,6 +20,7 @@ import type {
   ProcessingLogsPage,
   ProjectListItem,
   ReviewQueuePage,
+  ActivityPage,
 } from './types'
 
 /** Production: set VITE_API_BASE_URL=https://your-api.example.com (no trailing slash). Dev: leave unset to use Vite proxy. */
@@ -128,6 +129,10 @@ export const api = {
     json<ActionItemReviewDetailOut>(
       `/api/action-items/${encodeURIComponent(itemId)}/review-detail`,
     ),
+  actionItemDetail: (itemId: string) =>
+    json<ActionItemReviewDetailOut & { project_theme?: string | null }>(
+      `/api/action-items/${encodeURIComponent(itemId)}/detail`,
+    ),
   processingLogs: (params: {
     page?: number
     page_size?: number
@@ -140,6 +145,12 @@ export const api = {
     if (params.stage) q.set('stage', params.stage)
     if (params.status) q.set('status', params.status)
     return json<unknown>(`/api/logs/processing?${q}`).then(normalizeProcessingLogsPage)
+  },
+  activity: (params?: { page?: number; page_size?: number }): Promise<ActivityPage> => {
+    const q = new URLSearchParams()
+    q.set('page', String(params?.page ?? 1))
+    q.set('page_size', String(Math.min(50, Math.max(1, params?.page_size ?? 20))))
+    return json<ActivityPage>(`/api/activity?${q}`)
   },
   approveItem: (id: string) =>
     json<ActionItemOut>(`/api/action-items/${encodeURIComponent(id)}/approve`, {
@@ -175,4 +186,63 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(body),
     }),
+  patchTranscript: (
+    meetingId: string,
+    body: { raw_text: string },
+  ) =>
+    json<{ id: string; meeting_id: string; raw_text: string }>(
+      `/api/meetings/${encodeURIComponent(meetingId)}/transcript`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      },
+    ),
+  getExecutionLogs: (actionItemId: string) =>
+    json<{
+      items: Array<{
+        id: string
+        action_item_id: string
+        meeting_id: string
+        action: string
+        status: string
+        message: string
+        details: Record<string, unknown> | null
+        triggered_by: string
+        created_at: string
+        updated_at: string | null
+      }>
+      total: number
+    }>(`/api/orchestration/action-items/${encodeURIComponent(actionItemId)}/logs`),
+  triggerOrchestration: (
+    actionItemId: string,
+    action?: string,
+    options?: { new_status?: string; ticket_id?: string },
+  ) =>
+    json<{ triggered: boolean; execution_log_id: string | null; message: string }>(
+      `/api/orchestration/action-items/${encodeURIComponent(actionItemId)}/trigger`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          action: action ?? null,
+          new_status: options?.new_status ?? null,
+          ticket_id: options?.ticket_id ?? null,
+        }),
+      },
+    ),
+  triggerMeetingUpdate: (
+    meetingId: string,
+    body: {
+      title?: string
+      push_to_calendar?: boolean
+      notify_participants?: boolean
+      action_item_id?: string
+    },
+  ) =>
+    json<{ triggered: boolean; execution_log_id: string | null; message: string }>(
+      `/api/orchestration/meetings/${encodeURIComponent(meetingId)}/update`,
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+      },
+    ),
 }

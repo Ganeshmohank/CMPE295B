@@ -8,6 +8,7 @@ from app.db import get_db
 from app.domain.enums import ActionItemStatus
 from app.schemas.action_item import ActionItemUpdate
 from app.services import meetings as meetings_service
+from app.services import orchestration as orchestration_service
 
 
 def _parse_id(item_id: str) -> ObjectId:
@@ -84,7 +85,7 @@ async def update_action_item(item_id: str, body: ActionItemUpdate) -> dict:
     return fresh
 
 
-async def approve_action_item(item_id: str) -> dict:
+async def approve_action_item(item_id: str, auto_orchestrate: bool = True) -> dict:
     doc = await get_action_item_or_404(item_id)
     if doc["status"] != ActionItemStatus.PENDING_REVIEW.value:
         raise HTTPException(status_code=400, detail="Only pending_review items can be approved")
@@ -100,6 +101,35 @@ async def approve_action_item(item_id: str) -> dict:
     )
     fresh = await get_db().action_items.find_one({"_id": oid})
     assert fresh is not None
+
+    if auto_orchestrate:
+        db = get_db()
+        meeting = await db.meetings.find_one({"_id": doc["meeting_id"]})
+        if meeting:
+            tctx, other, owner_name, due_s = await orchestration_service.build_classification_context(
+                doc["meeting_id"],
+                oid,
+                doc,
+            )
+            import asyncio
+
+            asyncio.create_task(
+                orchestration_service.execute_auto_orchestration(
+                    action_item_id=item_id,
+                    meeting_id=str(doc["meeting_id"]),
+                    description=doc["description"],
+                    priority=doc["priority"],
+                    project_theme=meeting.get("project_theme"),
+                    meeting_title=meeting["title"],
+                    source_snippet=doc.get("source_snippet"),
+                    transcript_context=tctx,
+                    other_action_items=other,
+                    owner_name=owner_name,
+                    due_date=due_s,
+                    triggered_by="approval",
+                )
+            )
+
     return fresh
 
 
@@ -185,6 +215,20 @@ async def get_pending_review_detail(item_id: str) -> dict:
     row["participants"] = extra["participants"]
     row["processing_logs"] = extra["processing_logs"]
     return row
+
+
+async def get_action_item_detail(item_id: str) -> dict:
+    """Get action item detail regardless of status - for orchestrator page."""
+    doc = await get_action_item_or_404(item_id)
+    meeting = await get_db().meetings.find_one({"_id": doc["meeting_id"]})
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    return {
+        **doc,
+        "meeting_title": meeting["title"],
+        "meeting_start_time": meeting["start_time"],
+        "project_theme": meeting.get("project_theme"),
+    }
 
 
 async def list_pending_review_with_meeting_meta() -> list[dict]:

@@ -10,6 +10,31 @@ const PROC_ORDER = ['not_started', 'in_progress', 'processed', 'failed']
 const MEET_ORDER = ['completed', 'pending', 'failed']
 const AI_ORDER = ['pending_review', 'approved', 'rejected', 'ticket_created']
 
+type ThroughputStat = {
+  label: string
+  value: string
+  sub?: string
+  onClick?: () => void
+}
+
+function ThroughputStatBlock({ label, value, sub, onClick }: ThroughputStat) {
+  const body = (
+    <>
+      <div className="throughput-stat__label">{label}</div>
+      <div className="throughput-stat__value">{value}</div>
+      {sub != null && sub !== '' && <div className="throughput-stat__sub">{sub}</div>}
+    </>
+  )
+  if (onClick) {
+    return (
+      <button type="button" className="throughput-stat throughput-stat--click" onClick={onClick}>
+        {body}
+      </button>
+    )
+  }
+  return <div className="throughput-stat">{body}</div>
+}
+
 export function DashboardHome() {
   const navigate = useNavigate()
   const [windowDays, setWindowDays] = useState<DashboardWindowDays>(7)
@@ -101,61 +126,63 @@ export function DashboardHome() {
     },
   ]
 
-  const secondary: { label: string; value: string; sub?: string; onClick?: () => void }[] = [
+  const throughputGroups: { title: string; stats: ThroughputStat[] }[] = [
     {
-      label: `Meetings (${data.window_days}d window)`,
-      value: String(data.meetings_in_window),
-      sub: 'Started in selected period',
-      onClick: () => navigate('/meetings'),
+      title: `Selected period (last ${data.window_days} days)`,
+      stats: [
+        {
+          label: 'Meetings started',
+          value: String(data.meetings_in_window),
+          sub: 'In this window',
+          onClick: () => navigate('/meetings'),
+        },
+        {
+          label: 'Action items',
+          value: String(data.action_items_in_window),
+          sub: 'From meetings in window',
+        },
+      ],
     },
     {
-      label: 'Action items (same window)',
-      value: String(data.action_items_in_window),
-      sub: 'Items from meetings in window',
+      title: 'Review & delivery',
+      stats: [
+        {
+          label: 'Low-confidence queue',
+          value: String(data.pending_review_low_confidence),
+          sub: 'Pending, score under 65%',
+          onClick: () => navigate('/review'),
+        },
+        {
+          label: 'Tickets created',
+          value: String(data.action_items_ticket_created),
+          sub: 'From reviewed flow',
+        },
+        {
+          label: 'Review approval rate',
+          value: fmtPct(data.human_review_throughput_rate),
+          sub: `${data.action_items_approved_or_ticketed} ok · ${data.action_items_rejected} rejected`,
+        },
+      ],
     },
     {
-      label: 'Low-confidence queue',
-      value: String(data.pending_review_low_confidence),
-      sub: 'Pending & score under 65%',
-      onClick: () => navigate('/review'),
-    },
-    {
-      label: 'Tickets created',
-      value: String(data.action_items_ticket_created),
-      sub: 'From reviewed / approved flow',
-    },
-    {
-      label: 'In progress pipelines',
-      value: String(data.pipelines_in_progress),
-      onClick: () => navigate('/meetings?pipeline=in_progress'),
-    },
-    {
-      label: 'Not started',
-      value: String(data.pipelines_not_started),
-      onClick: () => navigate('/meetings?pipeline=not_started'),
-    },
-    {
-      label: 'Failed pipelines',
-      value: String(data.total_failed_pipelines),
-      onClick: () => navigate('/meetings?pipeline=failed'),
-    },
-    { label: 'Transcripts stored', value: String(data.total_transcripts) },
-    {
-      label: 'Avg transcript size',
-      value:
-        data.avg_transcript_length != null
-          ? `${Math.round(data.avg_transcript_length).toLocaleString()} chars`
-          : '—',
-    },
-    {
-      label: 'Participant seats (sum)',
-      value: (data.total_participant_seats ?? 0).toLocaleString(),
-    },
-    { label: 'Avg log stage time', value: fmtMs(data.average_processing_time_ms) },
-    {
-      label: 'Review approval rate',
-      value: fmtPct(data.human_review_throughput_rate),
-      sub: `${data.action_items_approved_or_ticketed} ok · ${data.action_items_rejected} rejected`,
+      title: 'Pipeline',
+      stats: [
+        {
+          label: 'In progress',
+          value: String(data.pipelines_in_progress),
+          onClick: () => navigate('/meetings?pipeline=in_progress'),
+        },
+        {
+          label: 'Not started',
+          value: String(data.pipelines_not_started),
+          onClick: () => navigate('/meetings?pipeline=not_started'),
+        },
+        {
+          label: 'Failed',
+          value: String(data.total_failed_pipelines),
+          onClick: () => navigate('/meetings?pipeline=failed'),
+        },
+      ],
     },
   ]
 
@@ -210,30 +237,38 @@ export function DashboardHome() {
         ))}
       </section>
 
-      <h2 className="section-title">Volume &amp; throughput</h2>
-      <div className="grid-stats grid-stats--dense">
-        {secondary.map((s) => (
-          <div key={s.label}>
-            {s.onClick ? (
-              <button
-                type="button"
-                className="stat-card stat-card--quiet stat-card--click"
-                onClick={s.onClick}
-              >
-                <div className="stat-label">{s.label}</div>
-                <div className="stat-value stat-value--sm">{s.value}</div>
-                {s.sub != null && s.sub !== '' && <div className="stat-sub">{s.sub}</div>}
-              </button>
-            ) : (
-              <div className="stat-card stat-card--quiet">
-                <div className="stat-label">{s.label}</div>
-                <div className="stat-value stat-value--sm">{s.value}</div>
-                {s.sub != null && s.sub !== '' && <div className="stat-sub">{s.sub}</div>}
+      <section className="throughput-section" aria-label="Volume and throughput">
+        <h2 className="section-title">Volume &amp; throughput</h2>
+        <div className="throughput-panels">
+          {throughputGroups.map((g) => (
+            <div key={g.title} className="throughput-panel">
+              <h3 className="throughput-panel__title">{g.title}</h3>
+              <div className="throughput-panel__stats">
+                {g.stats.map((s) => (
+                  <ThroughputStatBlock key={s.label} {...s} />
+                ))}
               </div>
-            )}
+            </div>
+          ))}
+          <div className="throughput-panel throughput-panel--library">
+            <h3 className="throughput-panel__title">Library &amp; processing</h3>
+            <dl className="throughput-dl">
+              <dt>Transcripts stored</dt>
+              <dd>{String(data.total_transcripts)}</dd>
+              <dt>Avg transcript size</dt>
+              <dd>
+                {data.avg_transcript_length != null
+                  ? `${Math.round(data.avg_transcript_length).toLocaleString()} chars`
+                  : '—'}
+              </dd>
+              <dt>Participant seats (sum)</dt>
+              <dd>{(data.total_participant_seats ?? 0).toLocaleString()}</dd>
+              <dt>Avg log stage time</dt>
+              <dd>{fmtMs(data.average_processing_time_ms)}</dd>
+            </dl>
           </div>
-        ))}
-      </div>
+        </div>
+      </section>
 
       <h2 className="section-title">Composition</h2>
       <div className="breakdown-grid">

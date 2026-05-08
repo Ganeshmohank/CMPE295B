@@ -2,6 +2,7 @@ from fastapi import APIRouter, Body, Query
 from pydantic import BaseModel
 
 from app.schemas.action_item import (
+    ActionItemDetailOut,
     ActionItemOut,
     ActionItemRejectBody,
     ActionItemReviewDetailOut,
@@ -9,7 +10,12 @@ from app.schemas.action_item import (
     ActionItemUpdate,
     ReviewQueuePageOut,
 )
-from app.serializers import action_item_review_detail_row, action_item_review_row, action_item_to_out
+from app.serializers import (
+    action_item_detail_row,
+    action_item_review_detail_row,
+    action_item_review_row,
+    action_item_to_out,
+)
 from app.services import action_items as action_items_service
 
 router = APIRouter()
@@ -54,6 +60,13 @@ async def review_queue(
 async def pending_review_item_detail(item_id: str) -> ActionItemReviewDetailOut:
     row = await action_items_service.get_pending_review_detail(item_id)
     return ActionItemReviewDetailOut(**action_item_review_detail_row(row))
+
+
+@router.get("/{item_id}/detail", response_model=ActionItemDetailOut)
+async def action_item_detail(item_id: str) -> ActionItemDetailOut:
+    """Get action item detail for orchestrator page - works for any status."""
+    row = await action_items_service.get_action_item_detail(item_id)
+    return ActionItemDetailOut(**action_item_detail_row(row))
 
 
 @router.patch("/{item_id}", response_model=ActionItemOut)

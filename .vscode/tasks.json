@@ -1,0 +1,125 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "MI: 1 Backend API",
+      "type": "shell",
+      "command": "cd \"${workspaceFolder}/backend\" && .venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "mi-backend",
+        "pattern": { "regexp": "^$", "file": 1, "location": 2, "message": 3 },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Uvicorn running|Application startup complete"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "meeting-intelligence",
+        "showReuseMessage": false
+      },
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    },
+    {
+      "label": "MI: 2 Frontend (Vite)",
+      "type": "shell",
+      "command": "cd \"${workspaceFolder}/frontend\" && npm run dev",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "mi-frontend",
+        "pattern": { "regexp": "^$", "file": 1, "location": 2, "message": 3 },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Local:\\s+http|localhost:[0-9]+"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "meeting-intelligence",
+        "showReuseMessage": false
+      },
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    },
+    {
+      "label": "MI: 3 Station Alpha",
+      "type": "shell",
+      "command": "cd \"${workspaceFolder}/station-alpha\" && npm run dev",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "mi-station",
+        "pattern": { "regexp": "^$", "file": 1, "location": 2, "message": 3 },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Station Alpha \\(Zoom ingest\\) listening"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "meeting-intelligence",
+        "showReuseMessage": false
+      },
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    },
+    {
+      "label": "MI: 4 Shell (git / scripts)",
+      "type": "shell",
+      "command": "echo \"\\n[MI terminal 4] e.g. git, seed, one-off scripts\\n\" && exec \"$SHELL\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "meeting-intelligence",
+        "showReuseMessage": false
+      },
+      "problemMatcher": [],
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    },
+    {
+      "label": "MI: 5 Shell (misc)",
+      "type": "shell",
+      "command": "echo \"\\n[MI terminal 5] e.g. mongosh, curl, notes\\n\" && exec \"$SHELL\"",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "meeting-intelligence",
+        "showReuseMessage": false
+      },
+      "problemMatcher": [],
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    },
+    {
+      "label": "Meeting Intelligence: open all 5 terminals (manual)",
+      "dependsOn": [
+        "MI: 1 Backend API",
+        "MI: 2 Frontend (Vite)",
+        "MI: 3 Station Alpha",
+        "MI: 4 Shell (git / scripts)",
+        "MI: 5 Shell (misc)"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    }
+  ]
+}

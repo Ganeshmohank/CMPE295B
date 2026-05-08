@@ -5,6 +5,27 @@ from app.db import get_db
 from app.schemas.common import oid_str
 
 
+async def list_meeting_attendee_emails(meeting_oid: ObjectId) -> list[str]:
+    """Emails for calendar invites; roster is meeting_participants → participants."""
+    db = get_db()
+    links = await db.meeting_participants.find({"meeting_id": meeting_oid}).to_list(None)
+    if not links:
+        return []
+    participant_ids = [l["participant_id"] for l in links]
+    seen: set[str] = set()
+    out: list[str] = []
+    async for p in db.participants.find({"_id": {"$in": participant_ids}}):
+        e = (p.get("email") or "").strip()
+        if e and e not in seen:
+            seen.add(e)
+            out.append(e)
+    return out
+
+
+async def count_meeting_participant_links(meeting_oid: ObjectId) -> int:
+    return await get_db().meeting_participants.count_documents({"meeting_id": meeting_oid})
+
+
 async def get_meeting_or_none(meeting_id: str) -> dict | None:
     try:
         oid = ObjectId(meeting_id)

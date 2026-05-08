@@ -1,10 +1,12 @@
 from fastapi import APIRouter
 
-from app.routers import action_items, dashboard, logs, meetings, projects
+from app.routers import action_items, activity, dashboard, logs, meetings, orchestration, projects
 
 api_router = APIRouter()
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 api_router.include_router(projects.router, prefix="/projects", tags=["projects"])
 api_router.include_router(meetings.router, prefix="/meetings", tags=["meetings"])
 api_router.include_router(action_items.router, prefix="/action-items", tags=["action-items"])
+api_router.include_router(orchestration.router, prefix="/orchestration", tags=["orchestration"])
+api_router.include_router(activity.router, prefix="/activity", tags=["activity"])
 api_router.include_router(logs.router, prefix="/logs", tags=["logs"])

@@ -76,6 +76,12 @@ class ActionItemReviewDetailOut(ActionItemReviewOut):
     processing_logs: list[ProcessingLogOut]
 
 
+class ActionItemDetailOut(ActionItemReviewOut):
+    """Action item detail for orchestrator page - works for any status."""
+
+    project_theme: str | None = None
+
+
 class ActionItemApproveBody(BaseModel):
     pass
 

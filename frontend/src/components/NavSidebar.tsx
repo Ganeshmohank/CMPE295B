@@ -45,6 +45,9 @@ export function NavSidebar() {
       <NavLink className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')} to="/meetings">
         Meetings
       </NavLink>
+      <NavLink className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')} to="/activity">
+        Activity
+      </NavLink>
       <NavLink className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')} to="/review">
         <span className="nav-link__row">
           Review queue

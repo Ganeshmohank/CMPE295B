@@ -1,0 +1,12 @@
+# Render Blueprint: New → Blueprint → connect this repo.
+# After deploy, add secrets in the dashboard (MONGODB_URI, OPENAI_API_KEY, …).
+services:
+  - type: web
+    name: meeting-intelligence-api
+    runtime: python
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health

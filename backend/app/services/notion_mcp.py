@@ -54,6 +54,19 @@ def _heading_3_block(title: str) -> dict[str, Any]:
     }
 
 
+class NotionMCPError(Exception):
+    """Custom exception for Notion MCP errors."""
+    pass
+
+
+def _dashed_notion_uuid(raw: str) -> str:
+    """Normalize 32 hex chars (with or without hyphens) to canonical 8-4-4-4-12."""
+    s = (raw or "").strip().replace("-", "")
+    if len(s) != 32:
+        raise NotionMCPError("Notion id must be 32 hex characters (from a page or database URL)")
+    return f"{s[:8]}-{s[8:12]}-{s[12:16]}-{s[16:20]}-{s[20:]}"
+
+
 def _merge_callout_snippets(source_snippet: str | None, meeting_title: str | None) -> str | None:
     sn = (source_snippet or "").strip()
     if not sn:
@@ -61,11 +74,6 @@ def _merge_callout_snippets(source_snippet: str | None, meeting_title: str | Non
     if meeting_title and meeting_title.strip():
         return f"[{meeting_title.strip()}] {sn}"
     return sn
-
-
-class NotionMCPError(Exception):
-    """Custom exception for Notion MCP errors."""
-    pass
 
 
 class NotionMCP:
@@ -100,9 +108,16 @@ class NotionMCP:
         method: str,
         endpoint: str,
         json_data: dict | None = None,
+        *,
+        use_recap_credentials: bool = False,
     ) -> dict:
         """Make a request to Notion API."""
-        if not self.is_live:
+        if use_recap_credentials:
+            if self.mode != "live" or not (self.api_key or "").strip():
+                raise NotionMCPError(
+                    "Notion recap requires MCP_MODE=live and NOTION_API_KEY"
+                )
+        elif not self.is_live:
             raise NotionMCPError("Notion MCP is in mock mode or not configured")
 
         url = f"{self.BASE_URL}{endpoint}"
@@ -263,6 +278,127 @@ class NotionMCP:
             "assignee": assignee,
             "epic_id": epic_id,
             "created_at": result["created_time"],
+            "mock": False,
+        }
+
+    @property
+    def recap_live(self) -> bool:
+        """
+        Meeting recap: MCP live + API key + a parent **page** and/or **database** id.
+        If NOTION_MEETING_NOTES_PARENT_ID is unset, NOTION_DATABASE_ID is used (new row in that DB).
+        """
+        if self.mode != "live" or not (settings.notion_api_key or "").strip():
+            return False
+        p = (settings.notion_meeting_notes_parent_id or "").strip().replace("-", "")
+        d = (settings.notion_database_id or "").strip().replace("-", "")
+        return len(p) == 32 or len(d) == 32
+
+    async def _database_title_property_name(self, database_id_dashed: str) -> str:
+        data = await self._request(
+            "GET", f"/databases/{database_id_dashed}", use_recap_credentials=True
+        )
+        for name, meta in (data.get("properties") or {}).items():
+            if meta.get("type") == "title":
+                return name
+        raise NotionMCPError(
+            "Notion database has no title property; use a database with a title column or set "
+            "NOTION_MEETING_NOTES_PARENT_ID to a page instead."
+        )
+
+    async def create_meeting_recap_page(
+        self,
+        *,
+        page_title: str,
+        section_heading_to_paragraphs: list[tuple[str, str]],
+        bullet_sections: list[tuple[str, list[str]]] | None = None,
+    ) -> dict[str, Any]:
+        """
+        Create a recap as a child **page** (NOTION_MEETING_NOTES_PARENT_ID) or a new **row**
+        in NOTION_DATABASE_ID when the parent page is not set.
+        """
+        if not self.recap_live:
+            mid = f"mock-recap-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            return {
+                "id": mid,
+                "url": f"https://notion.so/{mid.replace('-', '')}",
+                "mock": True,
+            }
+
+        parent_raw = (settings.notion_meeting_notes_parent_id or "").strip().replace("-", "")
+        db_raw = (settings.notion_database_id or "").strip().replace("-", "")
+        use_page = len(parent_raw) == 32
+        use_db = not use_page and len(db_raw) == 32
+        if not use_page and not use_db:
+            raise NotionMCPError(
+                "Set NOTION_MEETING_NOTES_PARENT_ID (page) or NOTION_DATABASE_ID (database), "
+                "each shared with the Notion integration"
+            )
+
+        children: list[dict[str, Any]] = []
+        for heading, body in section_heading_to_paragraphs:
+            children.append(_heading_3_block(heading))
+            children.extend(_paragraph_blocks_for_text(body))
+
+        if bullet_sections:
+            for heading, items in bullet_sections:
+                children.append(_heading_3_block(heading))
+                for line in items[:60]:
+                    line = (line or "").strip()[:1900]
+                    if not line:
+                        continue
+                    children.append(
+                        {
+                            "object": "block",
+                            "type": "bulleted_list_item",
+                            "bulleted_list_item": {
+                                "rich_text": [{"type": "text", "text": {"content": line}}],
+                            },
+                        }
+                    )
+
+        if len(children) > 100:
+            children = children[:100]
+
+        title_content = (page_title or "Meeting notes")[:2000]
+        fallback_children = [
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [{"type": "text", "text": {"content": "(No content)"}}],
+                },
+            }
+        ]
+        block_children = children if children else fallback_children
+
+        if use_page:
+            parent_id = _dashed_notion_uuid(parent_raw)
+            payload: dict[str, Any] = {
+                "parent": {"page_id": parent_id},
+                "properties": {
+                    "title": {
+                        "title": [{"text": {"content": title_content}}],
+                    },
+                },
+                "children": block_children,
+            }
+        else:
+            database_id = _dashed_notion_uuid(db_raw)
+            title_prop = await self._database_title_property_name(database_id)
+            payload = {
+                "parent": {"database_id": database_id},
+                "properties": {
+                    title_prop: {
+                        "title": [{"text": {"content": title_content}}],
+                    },
+                },
+                "children": block_children,
+            }
+
+        result = await self._request("POST", "/pages", payload, use_recap_credentials=True)
+        return {
+            "id": result["id"],
+            "url": result.get("url", ""),
             "mock": False,
         }
 

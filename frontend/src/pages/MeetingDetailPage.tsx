@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { InitialAvatar } from '../components/InitialAvatar'
@@ -13,16 +13,48 @@ import {
 } from '../lib/meetingDetailCache'
 import { notifySummaryStale } from '../lib/summarySync'
 import type {
-  ActionItemOut,
   ActionItemStatus,
   MeetingDetailResponse,
   MeetingParticipantOut,
+  NotionRecapOut,
   ProjectListItem,
   RelatedLinkOut,
 } from '../types'
 
 const SUGGESTION_CAP = 20
 const RELATED_PAGE_SIZE = 10
+const PACIFIC_TZ = 'America/Los_Angeles'
+
+function formatPacific(iso: string | null | undefined): string {
+  if (iso == null || iso === '') return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: PACIFIC_TZ,
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(d)
+}
+
+function logStageLabel(stage: string): string {
+  if (stage === 'notion_recap') return 'Notion recap'
+  return stage.replace(/_/g, ' ')
+}
+
+function notionOpenUrl(recap: NotionRecapOut | null | undefined): string | null {
+  if (!recap) return null
+  const u = recap.url?.trim()
+  if (u) return u
+  const raw = recap.page_id
+  if (!raw) return null
+  const hex = String(raw).replace(/-/g, '')
+  return hex.length === 32 ? `https://www.notion.so/${hex}` : null
+}
+
+function hasNotionRecapMeta(recap: NotionRecapOut | null | undefined): boolean {
+  if (!recap) return false
+  return Boolean(recap.posted_at || recap.page_id || (recap.url && recap.url.trim()))
+}
 
 // const PRIORITY_OPTIONS: Priority[] = ['critical', 'high', 'medium', 'low']
 
@@ -186,12 +218,92 @@ export function MeetingDetailPage() {
   const [transcriptText, setTranscriptText] = useState('')
   const [transcriptOriginal, setTranscriptOriginal] = useState('')
   const [transcriptSaving, setTranscriptSaving] = useState(false)
+  const [notionRecapBusy, setNotionRecapBusy] = useState(false)
+  const [notionRecapMsg, setNotionRecapMsg] = useState<string | null>(null)
+  const [notionBackgroundActive, setNotionBackgroundActive] = useState(false)
+  const [postApproveJobsWarmup, setPostApproveJobsWarmup] = useState(false)
+  const notionPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const approveWarmupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** When trace says recap succeeded but meeting payload has no recap meta (stale cache), poll once per meeting id. */
+  const notionMismatchAutoPollRef = useRef<string | null>(null)
   const comboboxRef = useRef<HTMLDivElement>(null)
 
   const pendingActionCount = useMemo(() => {
     if (!data) return 0
     return data.action_items.filter((a) => a.status === 'pending_review').length
   }, [data])
+
+  const notionRecapLogs = useMemo(() => {
+    if (!data) return []
+    return [...data.processing_logs]
+      .filter((l) => l.stage === 'notion_recap')
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+  }, [data])
+
+  const stopNotionRecapPoll = useCallback(() => {
+    if (notionPollRef.current != null) {
+      clearInterval(notionPollRef.current)
+      notionPollRef.current = null
+    }
+    setNotionBackgroundActive(false)
+  }, [])
+
+  const startNotionRecapPoll = useCallback(
+    (meetingId: string) => {
+      stopNotionRecapPoll()
+      setNotionBackgroundActive(true)
+      let attempts = 0
+      const maxAttempts = 40
+      const tick = async () => {
+        attempts += 1
+        invalidateMeetingDetailCache(meetingId)
+        try {
+          const d = await api.meetingDetail(meetingId)
+          writeMeetingDetailCache(meetingId, d)
+          setData(d)
+          const r = d.meeting.notion_recap
+          const ready = Boolean(r?.page_id || r?.posted_at || (r?.url && r.url.trim()))
+          if (ready || attempts >= maxAttempts) {
+            stopNotionRecapPoll()
+          }
+        } catch {
+          if (attempts >= maxAttempts) stopNotionRecapPoll()
+        }
+      }
+      void tick()
+      notionPollRef.current = setInterval(() => void tick(), 1700)
+    },
+    [stopNotionRecapPoll],
+  )
+
+  useEffect(() => {
+    return () => {
+      stopNotionRecapPoll()
+      if (approveWarmupTimerRef.current != null) {
+        clearTimeout(approveWarmupTimerRef.current)
+        approveWarmupTimerRef.current = null
+      }
+      setPostApproveJobsWarmup(false)
+    }
+  }, [id, stopNotionRecapPoll])
+
+  useEffect(() => {
+    notionMismatchAutoPollRef.current = null
+  }, [id])
+
+  useEffect(() => {
+    if (!id || !data) return
+    const logOk = notionRecapLogs.some((l) => l.status === 'success')
+    const hasMeta = hasNotionRecapMeta(data.meeting.notion_recap)
+    if (hasMeta) {
+      if (notionMismatchAutoPollRef.current === id) notionMismatchAutoPollRef.current = null
+      return
+    }
+    if (!logOk) return
+    if (notionMismatchAutoPollRef.current === id) return
+    notionMismatchAutoPollRef.current = id
+    startNotionRecapPoll(id)
+  }, [id, data, notionRecapLogs, startNotionRecapPoll])
 
   useEffect(() => {
     if (!data) return
@@ -488,12 +600,21 @@ export function MeetingDetailPage() {
     setActionBusy('bulk-a')
     setActionMsg(null)
     try {
-      await api.bulkApproveMeeting(id)
+      const { updated } = await api.bulkApproveMeeting(id)
       notifySummaryStale()
       invalidateMeetingDetailCache(id)
       const d = await api.meetingDetail(id)
       writeMeetingDetailCache(id, d)
       setData(d)
+      if (updated > 0) {
+        setPostApproveJobsWarmup(true)
+        if (approveWarmupTimerRef.current != null) clearTimeout(approveWarmupTimerRef.current)
+        approveWarmupTimerRef.current = setTimeout(() => {
+          setPostApproveJobsWarmup(false)
+          approveWarmupTimerRef.current = null
+        }, 26000)
+        startNotionRecapPoll(id)
+      }
     } catch (e) {
       setActionMsg(e instanceof Error ? e.message : String(e))
     } finally {
@@ -516,6 +637,32 @@ export function MeetingDetailPage() {
       setActionMsg(e instanceof Error ? e.message : String(e))
     } finally {
       setActionBusy(null)
+    }
+  }
+
+  async function postNotionRecapNow(force: boolean) {
+    if (!id) return
+    setNotionRecapBusy(true)
+    setNotionRecapMsg(null)
+    try {
+      const r = await api.postNotionMeetingRecap(id, { force })
+      if (r.posted) {
+        setNotionRecapMsg(r.mock ? 'Recap posted to Notion (mock).' : 'Recap posted to Notion.')
+      } else {
+        const hint = [r.skipped_reason, r.notion_url].filter(Boolean).join(' · ')
+        setNotionRecapMsg(hint || 'Recap was not posted.')
+      }
+      invalidateMeetingDetailCache(id)
+      const d = await api.meetingDetail(id)
+      writeMeetingDetailCache(id, d)
+      setData(d)
+      if (r.posted || r.skipped_reason === 'already_posted') {
+        startNotionRecapPoll(id)
+      }
+    } catch (e) {
+      setNotionRecapMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setNotionRecapBusy(false)
     }
   }
 
@@ -543,6 +690,11 @@ export function MeetingDetailPage() {
   const { meeting, transcript, action_items, processing_logs } = data
   const relatedLinks = data.related_links ?? []
   const teamSectionTitle = projectTheme.trim() ? `Team · ${projectTheme.trim()}` : 'Team'
+  const notionRecapUrl = notionOpenUrl(meeting.notion_recap)
+  const notionHasMeta = hasNotionRecapMeta(meeting.notion_recap)
+  const notionLogOk = notionRecapLogs.some((l) => l.status === 'success')
+  const showNotionLive =
+    notionRecapBusy || notionBackgroundActive || postApproveJobsWarmup
 
   return (
     <>
@@ -577,7 +729,7 @@ export function MeetingDetailPage() {
         <header className="detail-page__head">
           <h1 className="detail-title">{meeting.title}</h1>
           <p className="detail-lede muted">
-            {new Date(meeting.start_time).toLocaleString()} ·{' '}
+            {formatPacific(meeting.start_time)} PT ·{' '}
             {(meeting.duration_minutes ?? 0) > 0 ? `${meeting.duration_minutes} min` : 'Duration —'} ·{' '}
             {meeting.participants_count} people · {meeting.source} · {meeting.status} ·{' '}
             {meeting.processing_status}
@@ -619,6 +771,107 @@ export function MeetingDetailPage() {
           ) : (
             <p className="muted">No transcript.</p>
           )}
+        </section>
+
+        <section
+          className="detail-block detail-block--notion panel panel--elevated"
+          aria-label="Notion meeting recap"
+        >
+          <div className="panel__h-row panel__h-row--notion">
+            <h3 className="panel__h">Notion recap</h3>
+            {showNotionLive ? (
+              <span className="notion-live-indicator" title="Notion recap or orchestration in progress">
+                <span className="notion-live-indicator__dot" aria-hidden />
+                <span className="notion-live-indicator__label">Working…</span>
+              </span>
+            ) : null}
+          </div>
+          <p className="rail-card__intro muted">
+            Recap posts after ingest, when you <strong>approve items</strong> (runs in the background), or when
+            you use the button. Approvals also trigger Jira, Confluence, and calendar when live.
+          </p>
+          {notionRecapUrl || notionHasMeta ? (
+            <p className="muted">
+              {meeting.notion_recap?.posted_at ? (
+                <>
+                  Last posted{' '}
+                  <time dateTime={meeting.notion_recap.posted_at}>
+                    {formatPacific(meeting.notion_recap.posted_at)}
+                  </time>{' '}
+                  PT
+                  {notionRecapUrl ? (
+                    <>
+                      {' '}
+                      ·{' '}
+                      <a href={notionRecapUrl} target="_blank" rel="noopener noreferrer">
+                        Open in Notion
+                      </a>
+                    </>
+                  ) : null}
+                </>
+              ) : notionRecapUrl ? (
+                <>
+                  <a href={notionRecapUrl} target="_blank" rel="noopener noreferrer">
+                    Open recap in Notion
+                  </a>
+                </>
+              ) : (
+                <>Recap on file — link syncing…</>
+              )}
+            </p>
+          ) : notionLogOk && showNotionLive ? (
+            <p className="muted">Recap posted — fetching page link…</p>
+          ) : notionLogOk ? (
+            <p className="muted">
+              Recap logged.{' '}
+              <button type="button" className="btn btn-ghost btn--sm" onClick={() => void startNotionRecapPoll(id!)}>
+                Refresh link
+              </button>
+            </p>
+          ) : (
+            <p className="muted">No Notion recap posted for this meeting yet.</p>
+          )}
+          {notionRecapMsg ? <p className="actions-panel-msg muted">{notionRecapMsg}</p> : null}
+          <div className="notion-recap-toolbar">
+            <button
+              type="button"
+              className="btn btn-primary btn--sm"
+              disabled={notionRecapBusy || !id}
+              onClick={() => void postNotionRecapNow(false)}
+            >
+              {notionRecapBusy ? 'Posting…' : 'Post recap to Notion'}
+            </button>
+            {notionRecapUrl ? (
+              <button
+                type="button"
+                className="btn btn-ghost btn--sm"
+                disabled={notionRecapBusy}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      'Create a new Notion recap page even if one already exists? The old page is not deleted.',
+                    )
+                  ) {
+                    void postNotionRecapNow(true)
+                  }
+                }}
+              >
+                Post again (new page)
+              </button>
+            ) : null}
+          </div>
+          {notionRecapLogs.length > 0 ? (
+            <div className="notion-recap-trace">
+              <p className="notion-recap-trace__title">Activity trace</p>
+              <ol>
+                {notionRecapLogs.map((l) => (
+                  <li key={l.id}>
+                    <strong>{formatPacific(l.timestamp)} PT</strong> — {l.status}: {l.message}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
         </section>
 
         <section
@@ -710,6 +963,12 @@ export function MeetingDetailPage() {
                         {a.source_snippet}
                       </p>
                     )}
+                    {a.status === 'approved' && a.approved_at ? (
+                      <p className="detail-action-approved-at muted">
+                        Approved{' '}
+                        <time dateTime={a.approved_at}>{formatPacific(a.approved_at)}</time> PT
+                      </p>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -748,8 +1007,8 @@ export function MeetingDetailPage() {
               <tbody>
                 {processing_logs.map((l) => (
                   <tr key={l.id}>
-                    <td>{new Date(l.timestamp).toLocaleString()}</td>
-                    <td>{l.stage}</td>
+                    <td>{formatPacific(l.timestamp)} PT</td>
+                    <td>{logStageLabel(l.stage)}</td>
                     <td>{l.status}</td>
                     <td>{l.message}</td>
                     <td>{l.processing_time_ms ?? '—'}</td>

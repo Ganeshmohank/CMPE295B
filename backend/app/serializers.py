@@ -42,6 +42,28 @@ def action_item_to_out(doc: dict) -> dict:
         "source_snippet": doc.get("source_snippet"),
         "created_at": doc.get("created_at"),
         "updated_at": doc.get("updated_at"),
+        "approved_at": doc.get("approved_at"),
+    }
+
+
+def _notion_recap_from_meeting(doc: dict) -> dict | None:
+    raw = doc.get("notion_recap")
+    if not raw or not isinstance(raw, dict):
+        return None
+    posted = raw.get("posted_at")
+    pid = raw.get("page_id")
+    if posted is None and not pid:
+        return None
+    u = raw.get("url")
+    url = u.strip() if isinstance(u, str) and u.strip() else None
+    if not url and pid:
+        hex_id = str(pid).replace("-", "")
+        if len(hex_id) == 32:
+            url = f"https://www.notion.so/{hex_id}"
+    return {
+        "page_id": str(pid) if pid is not None else None,
+        "url": url,
+        "posted_at": posted,
     }
 
 
@@ -79,6 +101,7 @@ def meeting_to_metadata(doc: dict, merged_context: dict | None = None) -> dict:
         "project_theme": ctx.get("project_theme"),
         "context_developer": ctx.get("context_developer"),
         "context_pm": ctx.get("context_pm"),
+        "notion_recap": _notion_recap_from_meeting(doc),
     }
 
 

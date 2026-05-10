@@ -5,6 +5,35 @@ import { invalidateMeetingDetailCache } from '../lib/meetingDetailCache'
 import { notifySummaryStale } from '../lib/summarySync'
 import type { ActionItemOut, ActionItemStatus, Priority } from '../types'
 
+const PACIFIC_TZ = 'America/Los_Angeles'
+
+function formatPacific(iso: string | null | undefined): string {
+  if (iso == null || iso === '') return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: PACIFIC_TZ,
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(d)
+}
+
+/** Execution trail: time in Pacific with zone abbreviation (PST/PDT). */
+function formatPacificLogTime(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: PACIFIC_TZ,
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+    timeZoneName: 'short',
+  }).format(d)
+}
+
 interface ExecutionLog {
   id: string
   action_item_id: string
@@ -38,12 +67,13 @@ function priorityLabel(p: Priority): string {
 
 function actionLabel(action: string): string {
   const labels: Record<string, string> = {
-    create_jira_ticket: 'Create Notion Ticket',
+    create_jira_ticket: 'Create Jira Issue',
     link_to_epic: 'Link to Epic',
     update_confluence: 'Update Documentation',
     create_subtask: 'Create Subtask',
     update_meeting: 'Update Meeting',
     push_to_calendar: 'Push to Calendar',
+    create_calendar_event: 'Calendar Invite',
     notify_team: 'Notify Team',
     auto_orchestration: 'Auto-Orchestration',
     update_ticket_status: 'Update Ticket Status',
@@ -57,6 +87,144 @@ function triggeredByLabel(triggeredBy: string): string {
   if (triggeredBy === 'manual') return 'Manual'
   if (triggeredBy === 'scheduled') return 'Scheduled'
   return triggeredBy
+}
+
+function strField(v: unknown): string | undefined {
+  return typeof v === 'string' && v.trim() ? v : undefined
+}
+
+function CalendarLogBlock({ details }: { details: Record<string, unknown> }) {
+  if (details.kind !== 'calendar_invite') return null
+
+  const title = strField(details.event_title)
+  const tz = strField(details.timezone)
+  const startLocal = strField(details.start_local_display)
+  const endLocal = strField(details.end_local_display)
+  const startUtc = strField(details.start_utc)
+  const endUtc = strField(details.end_utc)
+  const timeHow = strField(details.time_resolution_label)
+  const parsedPreview = strField(details.parsed_from_preview)
+  const weekendAdjusted = details.weekend_adjusted === true
+  const originalStart = strField(details.original_start_iso)
+  const inviteSummary = strField(details.invite_summary)
+  const inviteMode = strField(details.invite_mode)
+  const rosterN =
+    typeof details.roster_participants_count === 'number' ? details.roster_participants_count : null
+  const attendeeCount =
+    typeof details.attendees_count === 'number' ? details.attendees_count : null
+  const emails = Array.isArray(details.attendee_emails)
+    ? details.attendee_emails.filter((x): x is string => typeof x === 'string')
+    : []
+  const emailsTruncated = details.attendee_emails_truncated === true
+  const link = strField(details.calendar_link)
+  const eventId = strField(details.event_id)
+  const err = strField(details.error)
+  const stage = strField(details.stage)
+  const mock = details.mock === true
+
+  return (
+    <div className="execution-log__calendar">
+      <div className="execution-log__calendar-head">
+        <span className="execution-log__calendar-label">Calendar invite</span>
+        {mock && (
+          <span className="execution-log__detail-chip execution-log__detail-chip--mock">Mock</span>
+        )}
+        {inviteMode && (
+          <span className="execution-log__detail-chip execution-log__detail-chip--calendar-mode">
+            {inviteMode}
+          </span>
+        )}
+      </div>
+      {err && (
+        <p className="execution-log__calendar-error">
+          {stage ? `[${stage}] ` : ''}
+          {err}
+        </p>
+      )}
+      <dl className="execution-log__dl">
+        {title && (
+          <>
+            <dt>Title</dt>
+            <dd>{title}</dd>
+          </>
+        )}
+        {(startLocal || endLocal) && (
+          <>
+            <dt>When (local)</dt>
+            <dd>
+              {[startLocal, endLocal].filter(Boolean).join(' → ')}
+              {tz ? ` (${tz})` : ''}
+            </dd>
+          </>
+        )}
+        {(startUtc || endUtc) && (
+          <>
+            <dt>When (UTC)</dt>
+            <dd>{[startUtc, endUtc].filter(Boolean).join(' → ')}</dd>
+          </>
+        )}
+        {timeHow && (
+          <>
+            <dt>Time resolved</dt>
+            <dd>{timeHow}</dd>
+          </>
+        )}
+        {parsedPreview && (
+          <>
+            <dt>Parse source</dt>
+            <dd className="execution-log__dl-mono">{parsedPreview}</dd>
+          </>
+        )}
+        {weekendAdjusted && originalStart && (
+          <>
+            <dt>Weekend shift</dt>
+            <dd>Moved to Monday (was {originalStart})</dd>
+          </>
+        )}
+        {(attendeeCount !== null || rosterN !== null) && (
+          <>
+            <dt>Roster</dt>
+            <dd>
+              {attendeeCount !== null && `${attendeeCount} email(s) on event`}
+              {attendeeCount !== null && rosterN !== null && ' · '}
+              {rosterN !== null && `${rosterN} participant link(s)`}
+            </dd>
+          </>
+        )}
+        {emails.length > 0 && (
+          <>
+            <dt>Attendees</dt>
+            <dd className="execution-log__dl-mono">
+              {emails.join(', ')}
+              {emailsTruncated ? ' …' : ''}
+            </dd>
+          </>
+        )}
+        {inviteSummary && (
+          <>
+            <dt>Invites</dt>
+            <dd>{inviteSummary}</dd>
+          </>
+        )}
+        {eventId && (
+          <>
+            <dt>Event ID</dt>
+            <dd className="execution-log__dl-mono">{eventId}</dd>
+          </>
+        )}
+      </dl>
+      {link && (
+        <a
+          href={link}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="execution-log__link execution-log__link--calendar"
+        >
+          Open in Google Calendar →
+        </a>
+      )}
+    </div>
+  )
 }
 
 export function ActionItemDetailPage() {
@@ -336,42 +504,46 @@ export function ActionItemDetailPage() {
                       <span className="execution-log__action">{actionLabel(log.action)}</span>
                       <span className="execution-log__triggered-by">{triggeredByLabel(log.triggered_by)}</span>
                       <span className="execution-log__time">
-                        {new Date(log.created_at).toLocaleTimeString()}
+                        {formatPacificLogTime(log.created_at)}
                       </span>
                     </div>
                     <p className="execution-log__message">{log.message}</p>
                     {log.details && (
                       <div className="execution-log__details">
-                        {log.details.ticket_id && (
-                          <a
-                            href={log.details.url as string}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="execution-log__link"
-                          >
-                            Open in Notion →
-                          </a>
-                        )}
-                        {log.details.ticket_type && (
-                          <span className="execution-log__detail-chip">
-                            {log.details.ticket_type as string}
-                          </span>
-                        )}
-                        {log.details.epic_name && (
-                          <span className="execution-log__detail-chip">
-                            Epic: {log.details.epic_name as string}
-                          </span>
-                        )}
-                        {log.details.classification && (
-                          <span className="execution-log__detail-chip execution-log__detail-chip--classification">
-                            LLM: {(log.details.classification as { ticket_type: string }).ticket_type} ({((log.details.classification as { confidence: number }).confidence * 100).toFixed(0)}%)
-                          </span>
-                        )}
-                        {log.details.mock && (
-                          <span className="execution-log__detail-chip execution-log__detail-chip--mock">
-                            Mock Mode
-                          </span>
-                        )}
+                        <CalendarLogBlock details={log.details} />
+                        <div className="execution-log__chips">
+                          {!!log.details.ticket_id && (
+                            <a
+                              href={log.details.url as string}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="execution-log__link"
+                            >
+                              Open ticket →
+                            </a>
+                          )}
+                          {!!log.details.ticket_type && (
+                            <span className="execution-log__detail-chip">
+                              {log.details.ticket_type as string}
+                            </span>
+                          )}
+                          {!!log.details.epic_name && (
+                            <span className="execution-log__detail-chip">
+                              Epic: {log.details.epic_name as string}
+                            </span>
+                          )}
+                          {!!log.details.classification && (
+                            <span className="execution-log__detail-chip execution-log__detail-chip--classification">
+                              LLM: {(log.details.classification as { ticket_type: string }).ticket_type} ({((log.details.classification as { confidence: number }).confidence * 100).toFixed(0)}%)
+                            </span>
+                          )}
+                          {log.details.mock === true &&
+                            log.details.kind !== 'calendar_invite' && (
+                            <span className="execution-log__detail-chip execution-log__detail-chip--mock">
+                              Mock Mode
+                            </span>
+                          )}
+                        </div>
                       </div>
                     )}
                   </li>
@@ -405,7 +577,7 @@ export function ActionItemDetailPage() {
                   <path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 2v12h16V6H4zm2 2h12v2H6V8zm0 4h12v2H6v-2zm0 4h8v2H6v-2z"/>
                 </svg>
                 <span className="orchestrator-btn__text">
-                  {orchestratorBusy === 'create_jira_ticket' ? 'Creating...' : 'Create Notion Ticket'}
+                  {orchestratorBusy === 'create_jira_ticket' ? 'Creating...' : 'Create Jira Issue'}
                 </span>
                 <span className="orchestrator-btn__arrow">→</span>
               </button>
@@ -450,7 +622,7 @@ export function ActionItemDetailPage() {
           <div className="orchestrator-panel orchestrator-panel--status">
             <h3 className="orchestrator-panel__title">Update Ticket Status</h3>
             <p className="orchestrator-panel__desc muted">
-              Update the linked Notion ticket's status
+              Update the linked Jira issue status
             </p>
             <div className="orchestrator-actions orchestrator-actions--status">
               <button
@@ -537,6 +709,14 @@ export function ActionItemDetailPage() {
                 <span className="meta-pair__k">Status</span>
                 <span className="meta-pair__v">{statusLabel(item.status)}</span>
               </div>
+              {item.status === 'approved' && item.approved_at ? (
+                <div>
+                  <span className="meta-pair__k">Approved at</span>
+                  <span className="meta-pair__v">
+                    <time dateTime={item.approved_at}>{formatPacific(item.approved_at)}</time> PT
+                  </span>
+                </div>
+              ) : null}
               <div>
                 <span className="meta-pair__k">Priority</span>
                 <span className="meta-pair__v">{priorityLabel(item.priority)}</span>
@@ -548,7 +728,13 @@ export function ActionItemDetailPage() {
               <div>
                 <span className="meta-pair__k">Created</span>
                 <span className="meta-pair__v">
-                  {item.created_at ? new Date(item.created_at).toLocaleDateString() : '—'}
+                  {item.created_at ? (
+                    <>
+                      <time dateTime={item.created_at}>{formatPacific(item.created_at)}</time> PT
+                    </>
+                  ) : (
+                    '—'
+                  )}
                 </span>
               </div>
             </div>

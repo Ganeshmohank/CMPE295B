@@ -5,6 +5,7 @@ const { extractActionItems } = require('../services/openaiService');
 const { sendBotToMeeting, getBotTranscript, waitForBotDone } = require('../services/recallService');
 const { getMeetingDetails } = require('../services/zoomApi');
 const mi = require('../services/meetingIntelligenceSync');
+const miNotify = require('../services/meetingIntelligenceNotify');
 
 /** Zoom numeric meeting id -> Recall bot id (memory; also persisted on meeting doc). */
 const activeBots = {};
@@ -136,6 +137,7 @@ router.post('/', async (req, res) => {
                 topic,
                 extractionWarning,
               );
+              miNotify.triggerNotionRecap(mongoMeetingId).catch(() => {});
             } else {
               await mi.finalizeNoTranscript(
                 mongoMeetingId,
@@ -159,6 +161,7 @@ router.post('/', async (req, res) => {
                   topic,
                   `Pipeline error after transcript was fetched (${msg.slice(0, 180)}). Transcript saved without action items.`,
                 );
+                miNotify.triggerNotionRecap(mongoMeetingId).catch(() => {});
                 console.log(`Salvaged transcript for meeting ${meetingId} after error`);
               } catch (salvageErr) {
                 console.error(`Salvage failed for meeting ${meetingId}:`, salvageErr.message);

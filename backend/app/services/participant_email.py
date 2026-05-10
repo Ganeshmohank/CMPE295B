@@ -6,6 +6,7 @@ from email.mime.text import MIMEText
 from email.utils import formataddr
 
 from app.config import settings
+from app.services.invite_recipients import filter_deliverable_invite_recipients
 
 
 def _send_sync(to_addrs: list[str], subject: str, body: str) -> None:
@@ -35,10 +36,11 @@ async def send_participant_digest(
     body_text: str,
 ) -> None:
     """Send one email per request (BCC all recipients in one message for simplicity)."""
-    if not to_addrs:
-        raise ValueError("No recipient addresses")
+    valid = filter_deliverable_invite_recipients(to_addrs)
+    if not valid:
+        return
     subject = f"Meeting update: {meeting_title}"
-    await asyncio.to_thread(_send_sync, to_addrs, subject, body_text)
+    await asyncio.to_thread(_send_sync, valid, subject, body_text)
 
 
 def smtp_configured() -> bool:

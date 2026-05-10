@@ -34,6 +34,7 @@ class LogStage(str, Enum):
     EXTRACTION = "extraction"
     ASSIGNMENT = "assignment"
     NOTIFICATION = "notification"
+    NOTION_RECAP = "notion_recap"
 
 
 class LogStatus(str, Enum):

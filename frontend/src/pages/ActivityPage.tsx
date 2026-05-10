@@ -51,7 +51,7 @@ export function ActivityPage() {
     <>
       <h1>Activity</h1>
       <p className="page-lead muted">
-        Orchestration and automation: Notion, calendar, approvals, and manual triggers. Newest
+        Orchestration and automation: Jira, Confluence, calendar, approvals, and manual triggers. Newest
         first.
       </p>
       {err && <div className="error-banner">{err}</div>}

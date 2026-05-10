@@ -2,12 +2,17 @@ from datetime import datetime, timezone
 
 from bson import ObjectId
 from bson.errors import InvalidId
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 
 from app.db import get_db
 from app.schemas.detail import MeetingDetailResponse
 from app.schemas.related_link import RelatedLinkOut
-from app.schemas.meeting import MeetingContextPatch, MeetingMetadata
+from app.schemas.meeting import (
+    MeetingContextPatch,
+    MeetingMetadata,
+    MeetingNotionRecapRequest,
+    MeetingNotionRecapResponse,
+)
 from app.schemas.common import parse_oid
 from app.schemas.participant import MeetingParticipantOut, MeetingTeamMemberCreate
 from app.schemas.transcript import TranscriptOut, TranscriptUpdate
@@ -20,6 +25,7 @@ from app.serializers import (
 from app.services.meeting_context import merge_meeting_display_context
 from app.services.meetings import get_meeting_or_none, load_meeting_detail
 from app.services.related_links import effective_related_links
+from app.services.meeting_notion_recap import post_meeting_notion_recap, verify_internal_secret
 from app.services.team_roster import add_meeting_team_member
 
 router = APIRouter()
@@ -111,6 +117,25 @@ async def patch_transcript(meeting_id: str, body: TranscriptUpdate) -> Transcrip
     fresh = await get_db().transcripts.find_one({"_id": transcript["_id"]})
     assert fresh is not None
     return TranscriptOut(**transcript_to_out(fresh))
+
+
+@router.post(
+    "/{meeting_id}/notion-recap",
+    response_model=MeetingNotionRecapResponse,
+)
+async def post_notion_meeting_recap(
+    meeting_id: str,
+    body: MeetingNotionRecapRequest | None = None,
+    x_internal_secret: str | None = Header(default=None, alias="X-Internal-Secret"),
+) -> MeetingNotionRecapResponse:
+    """
+    Create a Notion child page with meeting narrative + action items.
+    Intended to be called by station-alpha after transcript extraction; can also be triggered manually.
+    """
+    verify_internal_secret(x_internal_secret)
+    force = body.force if body else False
+    result = await post_meeting_notion_recap(meeting_id.strip(), force=force)
+    return MeetingNotionRecapResponse(**result)
 
 
 @router.get("/{meeting_id}", response_model=MeetingDetailResponse)

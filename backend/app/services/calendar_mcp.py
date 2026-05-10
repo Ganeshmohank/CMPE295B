@@ -14,6 +14,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.config import settings
+from app.services.invite_recipients import filter_deliverable_invite_recipients
 
 
 def _calendar_iana_timezone() -> str:
@@ -200,6 +201,11 @@ class CalendarMCP:
         Returns:
             dict with: id, html_link, title, start, end
         """
+        if attendees:
+            attendees = filter_deliverable_invite_recipients(attendees)
+            if not attendees:
+                attendees = None
+
         if not self.is_live:
             mock_id = f"mock-event-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             ae = list(attendees) if attendees else []
@@ -305,6 +311,9 @@ class CalendarMCP:
         location: str | None = None,
     ) -> dict:
         """Update an existing calendar event."""
+        if attendees is not None:
+            attendees = filter_deliverable_invite_recipients(attendees)
+
         if not self.is_live:
             return {
                 "id": event_id,
@@ -352,7 +361,8 @@ class CalendarMCP:
         if location is not None:
             event_body["location"] = location
         if attendees is not None:
-            event_body["attendees"] = [{"email": email} for email in attendees]
+            cleaned = filter_deliverable_invite_recipients(attendees)
+            event_body["attendees"] = [{"email": email} for email in cleaned]
 
         async with httpx.AsyncClient() as client:
             response = await client.put(

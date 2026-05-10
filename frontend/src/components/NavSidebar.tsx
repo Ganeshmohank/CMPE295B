@@ -59,6 +59,16 @@ export function NavSidebar() {
       <NavLink className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')} to="/logs">
         Pipeline logs
       </NavLink>
+      <NavLink className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')} to="/connected-apps">
+        Connected apps
+      </NavLink>
+      <div className="sidebar-footer-spacer" aria-hidden />
+      <NavLink
+        className={({ isActive }) => 'nav-link nav-link--footer' + (isActive ? ' active' : '')}
+        to="/profile"
+      >
+        Profile
+      </NavLink>
     </aside>
   )
 }

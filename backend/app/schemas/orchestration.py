@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 
 class OrchestrationAction(str, Enum):
-    CREATE_JIRA_TICKET = "create_jira_ticket"  # Creates Notion ticket
+    CREATE_JIRA_TICKET = "create_jira_ticket"  # Creates Jira issue
     LINK_TO_EPIC = "link_to_epic"
     UPDATE_CONFLUENCE = "update_confluence"  # Update documentation
     CREATE_SUBTASK = "create_subtask"
@@ -57,7 +57,7 @@ class OrchestrationTriggerRequest(BaseModel):
     action: OrchestrationAction | None = None
     # For UPDATE_TICKET_STATUS action
     new_status: str | None = None  # "In Progress", "Done", etc.
-    ticket_id: str | None = None  # Notion ticket ID to update
+    ticket_id: str | None = None  # Jira issue key (e.g. SCRUM-12), optional — defaults to last created issue from logs
 
 
 class OrchestrationTriggerResponse(BaseModel):

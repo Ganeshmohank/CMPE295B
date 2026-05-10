@@ -60,7 +60,7 @@ class ActionClassification:
         labels: list[str] | None = None,  # Tags/labels
         doc_search_term: str | None = None,  # For doc updates: search term
         calendar_time: str | None = None,  # For calendar events: time mentioned
-        # Rich ticket body (Notion) — from transcript + meeting context
+        # Rich ticket body (Jira description sections) — from transcript + meeting context
         ticket_body_context: str | None = None,
         ticket_body_discussion: str | None = None,
         ticket_body_next_steps: str | None = None,

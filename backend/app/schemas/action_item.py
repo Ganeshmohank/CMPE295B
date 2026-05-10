@@ -54,6 +54,7 @@ class ActionItemOut(ActionItemBase):
     meeting_id: str
     created_at: datetime | None = None
     updated_at: datetime | None = None
+    approved_at: datetime | None = None
 
 
 class ActionItemReviewOut(ActionItemOut):

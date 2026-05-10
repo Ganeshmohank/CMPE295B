@@ -5,6 +5,12 @@ from pydantic import BaseModel, Field
 from app.domain.enums import MeetingStatus, ProcessingStatus
 
 
+class NotionRecapOut(BaseModel):
+    page_id: str | None = None
+    url: str | None = None
+    posted_at: datetime | None = None
+
+
 class MeetingBase(BaseModel):
     title: str
     source: str = "zoom"
@@ -56,6 +62,9 @@ class MeetingMetadata(BaseModel):
     project_theme: str | None = Field(default=None)
     context_developer: str | None = Field(default=None)
     context_pm: str | None = Field(default=None)
+    notion_recap: NotionRecapOut | None = Field(
+        default=None, description="Notion page created for meeting recap when posted"
+    )
 
 
 class MeetingContextPatch(BaseModel):
@@ -69,3 +78,15 @@ class MeetingContextPatch(BaseModel):
 
 class ProjectThemesOut(BaseModel):
     themes: list[str]
+
+
+class MeetingNotionRecapRequest(BaseModel):
+    force: bool = False
+
+
+class MeetingNotionRecapResponse(BaseModel):
+    posted: bool
+    skipped_reason: str | None = None
+    notion_url: str | None = None
+    page_id: str | None = None
+    mock: bool | None = None

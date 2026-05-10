@@ -45,3 +45,7 @@ Set `PUBLIC_URL=https://<tunnel-host>` in `.env` (no trailing slash) if you use 
 2. **`meeting.ended`** — Logs “waiting for transcript”; when Recall finishes, saves `transcripts`, inserts `action_items` (`pending_review`), sets `processing_status: processed`, `status: completed`.
 
 The React app reads data only from **FastAPI**; it does not talk to Station Alpha directly.
+
+### Optional: Notion meeting recap
+
+If you set `MEETING_INTELLIGENCE_API_URL` (e.g. `http://127.0.0.1:8000/api`) and configure `NOTION_MEETING_NOTES_PARENT_ID` on the **FastAPI** `.env`, Station Alpha will `POST /meetings/{id}/notion-recap` after a successful transcript + extraction so a **child page** is created with a short narrative and the extracted action items.

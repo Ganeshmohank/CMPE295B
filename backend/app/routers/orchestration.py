@@ -116,7 +116,7 @@ async def trigger_orchestration(
         if not ticket_id:
             ticket_id = await orchestration_service.get_linked_ticket_id(item_id)
         if not ticket_id:
-            raise HTTPException(status_code=400, detail="No linked Notion ticket found for this action item")
+            raise HTTPException(status_code=400, detail="No linked Jira issue found for this action item")
         if not body.new_status:
             raise HTTPException(status_code=400, detail="new_status is required")
         

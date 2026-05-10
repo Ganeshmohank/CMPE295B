@@ -22,6 +22,23 @@ class Settings(BaseSettings):
     notion_database_id: str | None = None  # Database ID for tickets/stories
     notion_epics_database_id: str | None = None  # Optional: separate database for epics
 
+    # Jira / Atlassian Cloud (REST API v3)
+    jira_url: str | None = None  # https://your-site.atlassian.net (no trailing slash)
+    jira_api_mail: str | None = None  # Atlassian account email
+    jira_api_key: str | None = None  # API token from id.atlassian.com
+    jira_project_key: str | None = None  # e.g. SCRUM — default project for new issues
+    # Issue type name when classifier says "task" / generic (must exist in project)
+    jira_default_issue_type: str = "Task"
+    # Optional Confluence CQL filter: space key to prefer when searching pages
+    confluence_space_key: str | None = None
+
+    # Optional: parent Notion page ID for post-meeting recap notes (share page with integration)
+    notion_meeting_notes_parent_id: str | None = None
+    # When True, station-alpha can POST /meetings/{id}/notion-recap after processing
+    notion_post_recap_after_processing: bool = True
+    # Optional shared secret for internal callbacks (X-Internal-Secret)
+    internal_api_secret: str | None = None
+
     # Google Calendar MCP Configuration
     google_service_account_email: str | None = None  # From service account JSON
     google_private_key: str | None = None  # From service account JSON (the private_key field)
@@ -66,6 +83,17 @@ class Settings(BaseSettings):
     @property
     def notion_configured(self) -> bool:
         return all([self.notion_api_key, self.notion_database_id])
+
+    @property
+    def jira_configured(self) -> bool:
+        """Auth only — enough for JQL, list projects, read issues."""
+        u = (self.jira_url or "").strip()
+        return bool(u and self.jira_api_mail and self.jira_api_key)
+
+    @property
+    def jira_project_configured(self) -> bool:
+        """Ready to create issues in a default project without passing key each time."""
+        return self.jira_configured and bool((self.jira_project_key or "").strip())
 
     @property
     def google_calendar_configured(self) -> bool:

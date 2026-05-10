@@ -14,6 +14,7 @@ import type {
   LogStatus,
   MeetingDetailResponse,
   MeetingMetadata,
+  MeetingNotionRecapResponse,
   MeetingParticipantOut,
   MeetingsListPage,
   Priority,
@@ -73,6 +74,14 @@ export const api = {
   },
   meetingDetail: (id: string) =>
     json<MeetingDetailResponse>(`/api/meetings/${encodeURIComponent(id)}`),
+  postNotionMeetingRecap: (meetingId: string, body?: { force?: boolean }) =>
+    json<MeetingNotionRecapResponse>(
+      `/api/meetings/${encodeURIComponent(meetingId)}/notion-recap`,
+      {
+        method: 'POST',
+        body: JSON.stringify(body ?? { force: false }),
+      },
+    ),
   projectTeamMembers: (projectId: string) =>
     json<MeetingParticipantOut[]>(
       `/api/projects/${encodeURIComponent(projectId)}/team-members`,

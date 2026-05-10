@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+import asyncio
 from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import HTTPException
@@ -9,6 +10,7 @@ from app.domain.enums import ActionItemStatus
 from app.schemas.action_item import ActionItemUpdate
 from app.services import meetings as meetings_service
 from app.services import orchestration as orchestration_service
+from app.services.meeting_notion_recap import schedule_notion_recap_after_approval
 
 
 def _parse_id(item_id: str) -> ObjectId:
@@ -60,6 +62,7 @@ async def get_action_item_or_404(item_id: str) -> dict:
 async def update_action_item(item_id: str, body: ActionItemUpdate) -> dict:
     doc = await get_action_item_or_404(item_id)
     updates: dict = {}
+    approved_from_pending = False
     if body.description is not None:
         updates["description"] = body.description
     if body.owner_name is not None:
@@ -75,6 +78,12 @@ async def update_action_item(item_id: str, body: ActionItemUpdate) -> dict:
     if body.status is not None:
         _validate_status_transition(doc["status"], body.status.value)
         updates["status"] = body.status.value
+        if (
+            body.status == ActionItemStatus.APPROVED
+            and doc["status"] == ActionItemStatus.PENDING_REVIEW.value
+        ):
+            updates["approved_at"] = datetime.now(timezone.utc)
+            approved_from_pending = True
     if not updates:
         return doc
     updates["updated_at"] = datetime.now(timezone.utc)
@@ -82,6 +91,8 @@ async def update_action_item(item_id: str, body: ActionItemUpdate) -> dict:
     await get_db().action_items.update_one({"_id": oid}, {"$set": updates})
     fresh = await get_db().action_items.find_one({"_id": oid})
     assert fresh is not None
+    if approved_from_pending:
+        schedule_notion_recap_after_approval(str(fresh["meeting_id"]))
     return fresh
 
 
@@ -95,12 +106,15 @@ async def approve_action_item(item_id: str, auto_orchestrate: bool = True) -> di
         {
             "$set": {
                 "status": ActionItemStatus.APPROVED.value,
+                "approved_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
             }
         },
     )
     fresh = await get_db().action_items.find_one({"_id": oid})
     assert fresh is not None
+
+    schedule_notion_recap_after_approval(str(doc["meeting_id"]))
 
     if auto_orchestrate:
         db = get_db()
@@ -111,7 +125,6 @@ async def approve_action_item(item_id: str, auto_orchestrate: bool = True) -> di
                 oid,
                 doc,
             )
-            import asyncio
 
             asyncio.create_task(
                 orchestration_service.execute_auto_orchestration(
@@ -160,15 +173,51 @@ async def bulk_approve_for_meeting(meeting_id: str) -> int:
     meeting = await get_db().meetings.find_one({"_id": mid})
     if not meeting:
         raise HTTPException(status_code=404, detail="Meeting not found")
-    result = await get_db().action_items.update_many(
-        {"meeting_id": mid, "status": ActionItemStatus.PENDING_REVIEW.value},
+    db = get_db()
+    st = ActionItemStatus.PENDING_REVIEW.value
+    cursor = db.action_items.find({"meeting_id": mid, "status": st})
+    pending_docs = await cursor.to_list(None)
+    if not pending_docs:
+        return 0
+
+    now = datetime.now(timezone.utc)
+    ids = [d["_id"] for d in pending_docs]
+    result = await db.action_items.update_many(
+        {"_id": {"$in": ids}},
         {
             "$set": {
                 "status": ActionItemStatus.APPROVED.value,
-                "updated_at": datetime.now(timezone.utc),
+                "approved_at": now,
+                "updated_at": now,
             }
         },
     )
+    for doc in pending_docs:
+        oid = doc["_id"]
+        item_id = str(oid)
+        tctx, other, owner_name, due_s = await orchestration_service.build_classification_context(
+            doc["meeting_id"],
+            oid,
+            doc,
+        )
+        asyncio.create_task(
+            orchestration_service.execute_auto_orchestration(
+                action_item_id=item_id,
+                meeting_id=str(doc["meeting_id"]),
+                description=doc["description"],
+                priority=doc["priority"],
+                project_theme=meeting.get("project_theme"),
+                meeting_title=meeting["title"],
+                source_snippet=doc.get("source_snippet"),
+                transcript_context=tctx,
+                other_action_items=other,
+                owner_name=owner_name,
+                due_date=due_s,
+                triggered_by="approval",
+            )
+        )
+
+    schedule_notion_recap_after_approval(str(mid))
     return int(result.modified_count)
 
 

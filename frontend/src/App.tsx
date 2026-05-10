@@ -4,6 +4,8 @@ import { ActionItemDetailPage } from './pages/ActionItemDetailPage'
 import { DashboardHome } from './pages/DashboardHome'
 import { ActivityPage } from './pages/ActivityPage'
 import { LogsPage } from './pages/LogsPage'
+import { ConnectedAppsPage } from './pages/ConnectedAppsPage'
+import { UserProfilePage } from './pages/UserProfilePage'
 import { MeetingDetailPage } from './pages/MeetingDetailPage'
 import { MeetingsList } from './pages/MeetingsList'
 import { ReviewItemPage } from './pages/ReviewItemPage'
@@ -28,6 +30,8 @@ function AppMain() {
         <Route path="/review/item/:itemId" element={<ReviewItemPage />} />
         <Route path="/activity" element={<ActivityPage />} />
         <Route path="/logs" element={<LogsPage />} />
+        <Route path="/connected-apps" element={<ConnectedAppsPage />} />
+        <Route path="/profile" element={<UserProfilePage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </main>

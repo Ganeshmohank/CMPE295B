@@ -2,7 +2,8 @@
 Orchestration Service - Manages automated workflows for action items.
 
 Uses:
-- Notion MCP for ticket/story management
+- Jira for work items (issues, transitions, comments, epics)
+- Confluence for documentation page comments
 - LLM classifier to determine action types
 - Execution logs for audit trail
 """
@@ -18,9 +19,11 @@ from fastapi import HTTPException
 from app.config import settings
 from app.db import get_db
 from app.services.meetings import count_meeting_participant_links, list_meeting_attendee_emails
+from app.services.invite_recipients import partition_invite_recipients
 from app.services.participant_email import send_participant_digest, smtp_configured
 from app.services.calendar_business_time import move_weekend_to_monday
-from app.services.notion_mcp import notion_mcp, NotionMCPError
+from app.services.jira_mcp import jira_mcp, JiraMCPError
+from app.services.confluence_mcp import confluence_mcp, ConfluenceMCPError
 from app.services.action_classifier import (
     classify_action_item,
     ActionClassification,
@@ -64,6 +67,28 @@ def derive_calendar_event_title(action_item_doc: dict, meeting_doc: dict | None)
         return (line[:100] + "…") if len(line) > 100 else line
     mt = (meeting_doc or {}).get("title") if meeting_doc else None
     return (mt or "Meeting").strip()[:100]
+
+
+def _calendar_invite_summary(invite_mode: str, attendee_count: int) -> str:
+    if invite_mode == "sent":
+        return f"Google emailed calendar invites to {attendee_count} recipient(s) (sendUpdates)."
+    if invite_mode == "description_only":
+        return (
+            "Event created; invites were not emailed — attendee addresses were added to the "
+            "description (typical for service accounts without Workspace delegation / OAuth)."
+        )
+    if attendee_count == 0:
+        return "No invite emails — roster has no participant email addresses."
+    return f"Event lists {attendee_count} attendee(s); invite mode: {invite_mode}."
+
+
+def _parse_preview(text: str | None, max_len: int = 240) -> str | None:
+    if not text or not str(text).strip():
+        return None
+    s = str(text).strip().replace("\n", " ")
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1] + "…"
 
 
 def _parse_oid(id_str: str, entity: str = "Item") -> ObjectId:
@@ -164,14 +189,14 @@ async def execute_create_ticket(
     meeting_title: str | None = None,
     project_theme: str | None = None,
 ) -> dict:
-    """Create a ticket in Notion."""
+    """Create a Jira issue in the configured project."""
     log = await create_execution_log(
         ExecutionLogCreate(
             action_item_id=action_item_id,
             meeting_id=meeting_id,
-            action=OrchestrationAction.CREATE_JIRA_TICKET,  # Using same enum, actually Notion
+            action=OrchestrationAction.CREATE_JIRA_TICKET,
             status=OrchestrationStatus.RUNNING,
-            message="Creating ticket in Notion...",
+            message="Creating Jira issue...",
             triggered_by=triggered_by,
         )
     )
@@ -179,20 +204,18 @@ async def execute_create_ticket(
 
     try:
         ticket_type = classification.ticket_type.value if classification else "task"
-        
-        # Use LLM-extracted title if available, otherwise fallback to truncated description
+
         if classification and classification.extracted_title:
             title = classification.extracted_title
         else:
             title = description[:100] if len(description) > 100 else description
-        
-        # Use LLM-extracted description or original
+
         ticket_description = (
             classification.extracted_description if classification and classification.extracted_description
             else description
         )
-        
-        result = await notion_mcp.create_ticket(
+
+        result = await jira_mcp.create_ticket(
             title=title,
             description=ticket_description,
             ticket_type=ticket_type,
@@ -208,17 +231,17 @@ async def execute_create_ticket(
         )
 
         mode_label = "[Mock] " if result.get("mock") else ""
-        
-        # Build details with extracted fields
+        key = result.get("key") or result["id"]
+
         details: dict = {
-            "ticket_id": result["id"],
+            "ticket_id": key,
+            "issue_key": key,
             "ticket_type": result["type"],
             "priority": result["priority"],
             "url": result["url"],
             "mock": result.get("mock", False),
         }
-        
-        # Add extracted fields to log
+
         if classification:
             if classification.story_points:
                 details["story_points"] = classification.story_points
@@ -226,13 +249,13 @@ async def execute_create_ticket(
                 details["assignee"] = classification.assignee
             if classification.labels:
                 details["labels"] = classification.labels
-        
-        message_parts = [f"{mode_label}Created {result['type']}: \"{title[:50]}\""]
+
+        message_parts = [f'{mode_label}Created Jira {result["type"]}: "{title[:50]}" ({key})']
         if classification and classification.story_points:
             message_parts.append(f"({classification.story_points} points)")
         if classification and classification.assignee:
             message_parts.append(f"→ {classification.assignee}")
-        
+
         await update_execution_log(
             log_id,
             OrchestrationStatus.SUCCESS,
@@ -240,11 +263,11 @@ async def execute_create_ticket(
             details=details,
         )
 
-    except NotionMCPError as e:
+    except JiraMCPError as e:
         await update_execution_log(
             log_id,
             OrchestrationStatus.ERROR,
-            f"Failed to create ticket: {str(e)}",
+            f"Failed to create Jira issue: {str(e)}",
         )
 
     return await get_db().execution_logs.find_one({"_id": log["_id"]})
@@ -257,52 +280,60 @@ async def execute_link_to_epic(
     classification: ActionClassification | None = None,
     triggered_by: str = "user",
 ) -> dict:
-    """Link ticket to an epic in Notion."""
+    """Find a Jira Epic and link the action item's issue to it (best-effort)."""
     log = await create_execution_log(
         ExecutionLogCreate(
             action_item_id=action_item_id,
             meeting_id=meeting_id,
             action=OrchestrationAction.LINK_TO_EPIC,
             status=OrchestrationStatus.RUNNING,
-            message="Finding matching epic...",
+            message="Finding matching Jira epic...",
             triggered_by=triggered_by,
         )
     )
     log_id = str(log["_id"])
 
     try:
-        # Use classification suggestion or project theme
         epic_name = (
             classification.suggested_epic if classification else None
         ) or project_theme or "General"
 
-        epic = await notion_mcp.find_epic_by_name(epic_name)
+        epic = await jira_mcp.find_epic_by_name(epic_name)
 
         if epic:
             mode_label = "[Mock] " if epic.get("mock") else ""
+            details: dict = {
+                "epic_key": epic.get("key") or epic.get("id"),
+                "epic_name": epic["title"],
+                "mock": epic.get("mock", False),
+            }
+            issue_key = await get_linked_ticket_id(action_item_id)
+            if issue_key and (epic.get("key") or epic.get("id")):
+                link = await jira_mcp.link_issue_to_epic(issue_key, epic.get("key") or epic["id"])
+                details["link"] = link
+                if not link.get("linked") and link.get("error"):
+                    details["link_note"] = "Epic found; automatic parent link failed — link in Jira UI if needed."
+
             await update_execution_log(
                 log_id,
                 OrchestrationStatus.SUCCESS,
-                f"{mode_label}Linked to epic: \"{epic['title']}\"",
-                details={
-                    "epic_id": epic["id"],
-                    "epic_name": epic["title"],
-                    "mock": epic.get("mock", False),
-                },
+                f'{mode_label}Linked issue to epic: "{epic["title"]}"'
+                + (f" ({details.get('epic_key')})" if details.get("epic_key") else ""),
+                details=details,
             )
         else:
             await update_execution_log(
                 log_id,
                 OrchestrationStatus.SUCCESS,
-                f"No matching epic found for \"{epic_name}\". Ticket created without epic link.",
+                f'No matching Jira epic for "{epic_name}". Issue left without epic link.',
                 details={"searched_for": epic_name, "found": False},
             )
 
-    except NotionMCPError as e:
+    except JiraMCPError as e:
         await update_execution_log(
             log_id,
             OrchestrationStatus.ERROR,
-            f"Failed to link epic: {str(e)}",
+            f"Failed epic link: {str(e)}",
         )
 
     return await get_db().execution_logs.find_one({"_id": log["_id"]})
@@ -316,61 +347,57 @@ async def execute_update_documentation(
     doc_search_term: str | None = None,
     triggered_by: str = "user",
 ) -> dict:
-    """Find existing documentation and add a comment/update to it."""
+    """Search Confluence for a page and append a comment."""
     log = await create_execution_log(
         ExecutionLogCreate(
             action_item_id=action_item_id,
             meeting_id=meeting_id,
             action=OrchestrationAction.UPDATE_CONFLUENCE,
             status=OrchestrationStatus.RUNNING,
-            message=f"Searching for documentation: '{doc_search_term or 'docs'}'...",
+            message=f"Searching Confluence: '{doc_search_term or 'docs'}'...",
             triggered_by=triggered_by,
         )
     )
     log_id = str(log["_id"])
 
     try:
-        # Search for existing documentation
         search_term = doc_search_term or description[:50]
-        existing_doc = await notion_mcp.find_ticket_by_name(search_term)
-        
-        if existing_doc:
-            # Found existing doc - add a comment to it
-            comment_result = await notion_mcp.add_comment(
-                ticket_id=existing_doc["id"],
-                comment=f"Update from {meeting_title}:\n{description}",
-            )
-            
+        pages = await confluence_mcp.search_pages(search_term, limit=8)
+
+        if pages:
+            page = pages[0]
+            body = f"Update from meeting «{meeting_title}»:\n\n{description}"
+            comment_result = await confluence_mcp.add_page_comment(page["id"], body)
+
             mode_label = "[Mock] " if comment_result.get("mock") else ""
             await update_execution_log(
                 log_id,
                 OrchestrationStatus.SUCCESS,
-                f"{mode_label}Added update to existing doc: \"{existing_doc['title'][:40]}\"",
+                f'{mode_label}Comment added on Confluence page: "{page["title"][:50]}"',
                 details={
-                    "doc_id": existing_doc["id"],
-                    "doc_title": existing_doc["title"],
-                    "url": existing_doc.get("url"),
+                    "page_id": page["id"],
+                    "page_title": page["title"],
+                    "url": page.get("url"),
                     "action": "comment_added",
                     "mock": comment_result.get("mock", False),
                 },
             )
         else:
-            # No existing doc found - log this and skip
             await update_execution_log(
                 log_id,
                 OrchestrationStatus.SKIPPED,
-                f"No existing documentation found for '{search_term}'. Skipping update.",
+                f"No Confluence page matched '{search_term}'. Skipping doc update.",
                 details={
                     "searched_for": search_term,
-                    "suggestion": "Create the documentation manually or check the search term",
+                    "suggestion": "Create a page or set CONFLUENCE_SPACE_KEY to narrow search",
                 },
             )
 
-    except NotionMCPError as e:
+    except ConfluenceMCPError as e:
         await update_execution_log(
             log_id,
             OrchestrationStatus.ERROR,
-            f"Failed to update docs: {str(e)}",
+            f"Confluence error: {str(e)}",
         )
 
     return await get_db().execution_logs.find_one({"_id": log["_id"]})
@@ -396,7 +423,7 @@ async def execute_create_subtask(
     log_id = str(log["_id"])
 
     try:
-        result = await notion_mcp.create_ticket(
+        result = await jira_mcp.create_ticket(
             title=f"[Subtask] {description[:80]}",
             description=description,
             ticket_type="task",
@@ -406,22 +433,24 @@ async def execute_create_subtask(
         )
 
         mode_label = "[Mock] " if result.get("mock") else ""
+        key = result.get("key") or result["id"]
         await update_execution_log(
             log_id,
             OrchestrationStatus.SUCCESS,
-            f"{mode_label}Created subtask: \"{result['title'][:50]}...\"",
+            f'{mode_label}Created Jira sub-task issue: "{result["title"][:50]}..." ({key})',
             details={
-                "ticket_id": result["id"],
+                "ticket_id": key,
+                "issue_key": key,
                 "url": result["url"],
                 "mock": result.get("mock", False),
             },
         )
 
-    except NotionMCPError as e:
+    except JiraMCPError as e:
         await update_execution_log(
             log_id,
             OrchestrationStatus.ERROR,
-            f"Failed to create subtask: {str(e)}",
+            f"Failed to create subtask issue: {str(e)}",
         )
 
     return await get_db().execution_logs.find_one({"_id": log["_id"]})
@@ -434,7 +463,7 @@ async def execute_update_ticket_status(
     new_status: str,
     triggered_by: str = "user",
 ) -> dict:
-    """Update an existing Notion ticket's status."""
+    """Update Jira issue status (and summary transitions)."""
     log = await create_execution_log(
         ExecutionLogCreate(
             action_item_id=action_item_id,
@@ -448,7 +477,7 @@ async def execute_update_ticket_status(
     log_id = str(log["_id"])
 
     try:
-        result = await notion_mcp.update_ticket(
+        result = await jira_mcp.update_ticket(
             ticket_id=ticket_id,
             status=new_status,
         )
@@ -457,40 +486,48 @@ async def execute_update_ticket_status(
         await update_execution_log(
             log_id,
             OrchestrationStatus.SUCCESS,
-            f"{mode_label}Updated ticket status to '{new_status}'",
+            f"{mode_label}Updated Jira issue to '{new_status}'",
             details={
                 "ticket_id": ticket_id,
+                "issue_key": ticket_id,
                 "new_status": new_status,
                 "url": result.get("url"),
                 "mock": result.get("mock", False),
             },
         )
 
-    except NotionMCPError as e:
+    except JiraMCPError as e:
         await update_execution_log(
             log_id,
             OrchestrationStatus.ERROR,
-            f"Failed to update ticket: {str(e)}",
+            f"Failed to update Jira issue: {str(e)}",
         )
 
     return await get_db().execution_logs.find_one({"_id": log["_id"]})
 
 
 async def get_linked_ticket_id(action_item_id: str) -> str | None:
-    """Find the Notion ticket ID created for this action item."""
+    """Issue key (e.g. SCRUM-42) from the latest successful create_jira_ticket log."""
     db = get_db()
     oid = _parse_oid(action_item_id, "Action item")
-    
-    # Look for a successful create ticket log
-    log = await db.execution_logs.find_one({
-        "action_item_id": oid,
-        "action": OrchestrationAction.CREATE_JIRA_TICKET.value,
-        "status": OrchestrationStatus.SUCCESS.value,
-        "details.ticket_id": {"$exists": True},
-    })
-    
+
+    cur = (
+        db.execution_logs.find(
+            {
+                "action_item_id": oid,
+                "action": OrchestrationAction.CREATE_JIRA_TICKET.value,
+                "status": OrchestrationStatus.SUCCESS.value,
+            }
+        )
+        .sort("created_at", -1)
+        .limit(1)
+    )
+    logs = await cur.to_list(1)
+    log = logs[0] if logs else None
+
     if log and log.get("details"):
-        return log["details"].get("ticket_id")
+        d = log["details"]
+        return d.get("issue_key") or d.get("ticket_id")
     return None
 
 
@@ -526,45 +563,45 @@ async def execute_search_and_update_ticket(
         return await get_db().execution_logs.find_one({"_id": log["_id"]})
 
     try:
-        # Search for the ticket
-        ticket = await notion_mcp.find_ticket_by_name(target_ticket_name)
-        
+        ticket = await jira_mcp.find_ticket_by_name(target_ticket_name)
+
         if not ticket:
             await update_execution_log(
                 log_id,
                 OrchestrationStatus.ERROR,
-                f"No ticket found matching '{target_ticket_name}'",
+                f"No Jira issue found matching '{target_ticket_name}'",
                 details={"searched_for": target_ticket_name},
             )
             return await get_db().execution_logs.find_one({"_id": log["_id"]})
 
-        # Found the ticket - now update it
         mode_label = "[Mock] " if ticket.get("mock") else ""
-        
-        result = await notion_mcp.update_ticket(
-            ticket_id=ticket["id"],
+        tid = ticket.get("key") or ticket["id"]
+
+        result = await jira_mcp.update_ticket(
+            ticket_id=tid,
             status=new_status,
         )
 
         await update_execution_log(
             log_id,
             OrchestrationStatus.SUCCESS,
-            f"{mode_label}Found and updated ticket '{ticket['title']}' → {new_status}",
+            f"{mode_label}Updated Jira '{ticket['title']}' ({tid}) → {new_status}",
             details={
-                "ticket_id": ticket["id"],
+                "ticket_id": tid,
+                "issue_key": tid,
                 "ticket_title": ticket["title"],
                 "previous_status": ticket.get("status"),
                 "new_status": new_status,
-                "url": ticket.get("url"),
+                "url": ticket.get("url") or result.get("url"),
                 "mock": ticket.get("mock", False),
             },
         )
 
-    except NotionMCPError as e:
+    except JiraMCPError as e:
         await update_execution_log(
             log_id,
             OrchestrationStatus.ERROR,
-            f"Failed to update ticket: {str(e)}",
+            f"Failed to update Jira issue: {str(e)}",
         )
 
     return await get_db().execution_logs.find_one({"_id": log["_id"]})
@@ -607,8 +644,14 @@ async def execute_update_meeting(
 
     if notify_participants:
         emails = await list_meeting_attendee_emails(oid)
-        if not emails:
-            actions_taken.append("Notify skipped: no participant email addresses")
+        deliverable, placeholder = partition_invite_recipients(emails)
+        if not deliverable:
+            if placeholder:
+                actions_taken.append(
+                    "Notify skipped: @example.com addresses are demo placeholders and are not emailed"
+                )
+            else:
+                actions_taken.append("Notify skipped: no participant email addresses")
         elif not smtp_configured():
             actions_taken.append(
                 "Email not configured: set SMTP_HOST and SMTP_FROM (and credentials) in .env"
@@ -627,12 +670,12 @@ async def execute_update_meeting(
             )
             try:
                 await send_participant_digest(
-                    to_addrs=emails,
+                    to_addrs=deliverable,
                     meeting_title=title_mt,
                     body_text=body,
                 )
-                actions_taken.append(f"Sent email to {len(emails)} recipient(s)")
-                details["email_recipient_count"] = len(emails)
+                actions_taken.append(f"Sent email to {len(deliverable)} recipient(s)")
+                details["email_recipient_count"] = len(deliverable)
             except Exception as e:
                 actions_taken.append(f"Email failed: {e!s}")
 
@@ -720,78 +763,130 @@ async def execute_create_calendar_event(
         event_time = move_weekend_to_monday(event_time)
         weekend_adjusted = event_time != pre_weekend
 
+        end_time = event_time + timedelta(hours=1)
+
+        if calendar_time and str(calendar_time).strip():
+            time_resolution = "llm_calendar_time"
+        elif parse_source:
+            time_resolution = "parsed_action_item_text"
+        else:
+            time_resolution = "default_next_day_10am"
+
         # Get attendees from meeting roster (meeting_participants join), if not provided
         if not attendees:
             attendees = await list_meeting_attendee_emails(meeting_oid)
+        attendee_list_full: list[str] = list(attendees) if attendees else []
+        real_invitees, placeholder_invitees = partition_invite_recipients(attendee_list_full)
+        roster_n = await count_meeting_participant_links(meeting_oid)
+
+        event_description = (
+            f"{description.rstrip()}\n\nCreated from Meeting Intelligence action item."
+        )
+        if placeholder_invitees:
+            event_description += (
+                "\n\n---\nPlaceholder roster emails (demo — not sent as calendar invites):\n"
+                + "\n".join(f"- {e}" for e in placeholder_invitees)
+            )
+
+        cal_base: dict = {
+            "kind": "calendar_invite",
+            "event_title": title,
+            "timezone": tz_name,
+            "time_resolution": time_resolution,
+            "time_resolution_label": {
+                "llm_calendar_time": "From LLM / classifier calendar_time",
+                "parsed_action_item_text": "Parsed from action + transcript (time cues found)",
+                "default_next_day_10am": "Default — next day 10:00 (no time cues in text)",
+            }.get(time_resolution, time_resolution),
+            "parsed_from_preview": _parse_preview(parse_source) if parse_source else None,
+            "weekend_adjusted": weekend_adjusted,
+            "original_start_iso": pre_weekend.isoformat() if weekend_adjusted else None,
+            "start_iso": event_time.isoformat(),
+            "end_iso": end_time.isoformat(),
+            "start_local_display": event_time.strftime("%a %Y-%m-%d %H:%M"),
+            "end_local_display": end_time.strftime("%a %Y-%m-%d %H:%M"),
+            "start_utc": event_time.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "end_utc": event_time.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            "attendees_count": len(attendee_list_full),
+            "attendee_emails": attendee_list_full[:40],
+            "attendee_emails_truncated": len(attendee_list_full) > 40,
+            "placeholder_emails_excluded_from_invite": placeholder_invitees[:40],
+            "deliverable_attendee_emails": real_invitees[:40],
+            "roster_participants_count": roster_n,
+        }
 
         # Create the calendar event
-        result = await calendar_mcp.create_event(
-            title=title,
-            start_time=event_time,
-            end_time=event_time + timedelta(hours=1),
-            description=f"{description}\n\nCreated from Meeting Intelligence action item.",
-            attendees=attendees if attendees else None,
-            meeting_id=meeting_id,
-        )
+        try:
+            result = await calendar_mcp.create_event(
+                title=title,
+                start_time=event_time,
+                end_time=end_time,
+                description=event_description,
+                attendees=real_invitees if real_invitees else None,
+                meeting_id=meeting_id,
+            )
+        except CalendarMCPError as e:
+            await update_execution_log(
+                log_id,
+                OrchestrationStatus.ERROR,
+                f"Failed to create calendar event: {str(e)}",
+                details={**cal_base, "stage": "google_calendar_api", "error": str(e)},
+            )
+            return await get_db().execution_logs.find_one({"_id": log["_id"]})
 
         mode_label = "[Mock] " if result.get("mock") else ""
-        attendee_count = len(attendees) if attendees else 0
-        roster_n = await count_meeting_participant_links(meeting_oid)
+        n_deliverable = len(real_invitees)
+        n_full = len(attendee_list_full)
         invite_mode = result.get("invite_mode") or "none"
 
         if invite_mode == "description_only":
             invite_msg = (
                 f"Event created — Google did not email invites (service account). "
-                f"Listed {attendee_count} suggested attendee(s) in the event description. "
+                f"Roster email details are in the event description ({n_full} address(es), "
+                f"{n_deliverable} deliverable). "
                 "For real email invites on a personal Gmail, add OAuth env vars (see .env.example); "
                 "Workspace accounts can use GOOGLE_WORKSPACE_DELEGATED_USER."
             )
-        elif invite_mode == "sent" and attendee_count:
-            invite_msg = f"Sent {attendee_count} calendar invite(s)"
-        elif roster_n and attendee_count == 0:
+        elif invite_mode == "sent" and n_deliverable:
+            invite_msg = f"Sent {n_deliverable} calendar invite(s)"
+        elif roster_n and n_deliverable == 0 and placeholder_invitees:
+            invite_msg = (
+                f"0 invites emailed — {len(placeholder_invitees)} address(es) are @example.com "
+                "(demo); listed in event description. Use real emails for delivery."
+            )
+        elif roster_n and n_deliverable == 0:
             invite_msg = (
                 f"0 invite(s) — roster lists {roster_n} people but none have emails on participant records"
             )
-        elif attendee_count:
-            invite_msg = f"{attendee_count} attendee(s) on event (no email sendUpdates)"
+        elif n_deliverable:
+            invite_msg = f"{n_deliverable} attendee(s) on event (no email sendUpdates)"
         else:
             invite_msg = "No attendees on roster emails"
+
+        cal_details = {
+            **cal_base,
+            "event_id": result.get("id"),
+            "calendar_link": result.get("html_link"),
+            "invite_mode": invite_mode,
+            "invite_summary": _calendar_invite_summary(invite_mode, n_deliverable),
+            "planned_attendees": result.get("planned_attendees"),
+            "mock": result.get("mock", False),
+        }
 
         await update_execution_log(
             log_id,
             OrchestrationStatus.SUCCESS,
             f"{mode_label}Created calendar event: \"{title}\" — {invite_msg}"
             + (" — moved from weekend to Monday" if weekend_adjusted else ""),
-            details={
-                "event_id": result.get("id"),
-                "calendar_link": result.get("html_link"),
-                "event_time": event_time.isoformat(),
-                "weekend_adjusted": weekend_adjusted,
-                    **(
-                    {"original_event_time": pre_weekend.isoformat()}
-                    if weekend_adjusted
-                    else {}
-                ),
-                "parsed_from": parse_source or "default_next_day_10am",
-                "attendees_count": attendee_count,
-                "roster_participants_count": roster_n,
-                "invite_mode": invite_mode,
-                "planned_attendees": result.get("planned_attendees"),
-                "mock": result.get("mock", False),
-            },
+            details=cal_details,
         )
 
-    except CalendarMCPError as e:
-        await update_execution_log(
-            log_id,
-            OrchestrationStatus.ERROR,
-            f"Failed to create calendar event: {str(e)}",
-        )
     except Exception as e:
         await update_execution_log(
             log_id,
             OrchestrationStatus.ERROR,
             f"Calendar error: {str(e)}",
+            details={"kind": "calendar_invite", "stage": "unexpected", "error": str(e)},
         )
 
     return await get_db().execution_logs.find_one({"_id": log["_id"]})

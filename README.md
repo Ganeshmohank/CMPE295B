@@ -182,6 +182,32 @@ See `meeting-intelligence/docs/database-schema.md` for the same model as a **Mer
 
 ---
 
+## Approvals, Notion recap, and Atlassian errors
+
+### What runs when you approve
+
+Approving an action item (single **Approve**, **Approve all** on the meeting page, or `PATCH` to `approved` from `pending_review`) does two things in the API:
+
+1. **Notion meeting recap** — A background task calls the same recap logic as `POST /api/meetings/{id}/notion-recap`. If a recap page already exists for the meeting, it is skipped unless you call that endpoint with `force: true` or use **Post again** in the UI. This runs even when `NOTION_POST_RECAP_AFTER_PROCESSING=false` (that flag only disables automatic recap right after ingest; approval still tries recap so reviewers can drive publishing).
+
+2. **Auto-orchestration** — When `MCP_MODE=live` and Jira (and related) env vars are set, the classifier may create/update Jira issues, post Confluence comments, calendar events, etc. Failures show up in execution / activity logs (for example **Confluence error** entries).
+
+### Confluence errors on approval (e.g. HTTP 401 + HTML)
+
+Confluence uses the same **Atlassian Cloud** site and API token as Jira (`JIRA_URL`, `JIRA_API_MAIL`, `JIRA_API_KEY`). A **`401`** response whose body looks like an **HTML login page** almost always means authentication failed, not that “Confluence is down.”
+
+Checklist:
+
+- **`JIRA_URL`** is exactly your Cloud site root: `https://YOUR_SITE.atlassian.net` (no `/wiki`, no issue path).
+- **`JIRA_API_MAIL`** is the primary email of the Atlassian account that owns the token.
+- **`JIRA_API_KEY`** is a current [API token](https://id.atlassian.com/manage-profile/security/api-tokens) (revoke old tokens if unsure).
+- The account has **Confluence** access and permission to comment on the space you search (optional **`CONFLUENCE_SPACE_KEY`** narrows CQL search).
+- **`MCP_MODE=live`** so Confluence calls are not mocked.
+
+The API surfaces a shorter error message for HTML 401 responses; full troubleshooting is here in the README.
+
+---
+
 ## HTTP API
 
 Base URL: **`/api`** (e.g. `http://127.0.0.1:8000/api/...`).  
@@ -223,6 +249,7 @@ IDs in path parameters are **MongoDB ObjectId strings** (24 hex chars).
 | `POST` | `/{meeting_id}/team-members` | Add attendee + optional link to project roster (`MeetingTeamMemberCreate`: `display_name`, `email`, `add_to_linked_project`). Returns `MeetingParticipantOut`. |
 | `GET` | `/{meeting_id}` | Full detail: meeting, transcript, action items, logs, participants (`MeetingDetailResponse`). |
 | `GET` | `/{meeting_id}/meta` | Lightweight metadata only (`MeetingMetadata`). |
+| `POST` | `/{meeting_id}/notion-recap` | Create Notion recap page (`force` optional). Also run in the background after action-item approval; see **Approvals, Notion recap, and Atlassian errors**. |
 
 ---
 
@@ -232,10 +259,10 @@ IDs in path parameters are **MongoDB ObjectId strings** (24 hex chars).
 |--------|------|-------------|
 | `GET` | `/review-queue` | Paginated pending-review items across meetings. Query: `page`, `page_size` (1–10). |
 | `GET` | `/{item_id}/review-detail` | Single pending item with meeting context for the review drawer. |
-| `PATCH` | `/{item_id}` | Update editable fields (`ActionItemUpdate` body). |
-| `POST` | `/{item_id}/approve` | Approve extracted item. |
+| `PATCH` | `/{item_id}` | Update editable fields (`ActionItemUpdate` body). Moving `status` from `pending_review` to `approved` sets `approved_at` and schedules **Notion recap** (same as POST approve). |
+| `POST` | `/{item_id}/approve` | Approve extracted item. Schedules **Notion recap** (background) and **auto-orchestration** when enabled. |
 | `POST` | `/{item_id}/reject` | Reject item (optional `ActionItemRejectBody`). |
-| `POST` | `/meetings/{meeting_id}/bulk-approve` | Approve all pending items for that meeting. Returns `{ "updated": number }`. |
+| `POST` | `/meetings/{meeting_id}/bulk-approve` | Approve all pending items for that meeting. Returns `{ "updated": number }`. Schedules **one** Notion recap task for the meeting and orchestration per item. |
 | `POST` | `/meetings/{meeting_id}/bulk-reject` | Reject all pending items for that meeting. Returns `{ "updated": number }`. |
 
 ---

@@ -12,6 +12,7 @@ export type LogStage =
   | 'extraction'
   | 'assignment'
   | 'notification'
+  | 'notion_recap'
 export type LogStatus = 'success' | 'failed' | 'pending' | 'skipped'
 
 export type DashboardWindowDays = 7 | 30
@@ -115,6 +116,7 @@ export interface ActionItemOut {
   source_snippet: string | null
   created_at: string | null
   updated_at: string | null
+  approved_at?: string | null
 }
 
 export interface ActionItemReviewOut extends ActionItemOut {
@@ -157,6 +159,12 @@ export interface ProjectListItem {
   name: string
 }
 
+export interface NotionRecapOut {
+  page_id: string | null
+  url: string | null
+  posted_at?: string | null
+}
+
 export interface MeetingMetadata {
   id: string
   title: string
@@ -170,6 +178,15 @@ export interface MeetingMetadata {
   project_theme: string | null
   context_developer: string | null
   context_pm: string | null
+  notion_recap?: NotionRecapOut | null
+}
+
+export interface MeetingNotionRecapResponse {
+  posted: boolean
+  skipped_reason: string | null
+  notion_url: string | null
+  page_id: string | null
+  mock: boolean | null
 }
 
 export interface MeetingDetailResponse {

@@ -43,6 +43,7 @@ export function normalizeMeetingListItem(raw: unknown): MeetingListItem | null {
     action_items_count: toInt(r.action_items_count),
     pending_review_count: toInt(r.pending_review_count),
     transcript_length: toIntOrNull(r.transcript_length),
+    archived: r.archived === true,
   }
 }
 

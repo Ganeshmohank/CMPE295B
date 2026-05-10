@@ -4,14 +4,18 @@ from bson import ObjectId
 from bson.errors import InvalidId
 from fastapi import APIRouter, Header, HTTPException
 
+from app.config import settings
+
 from app.db import get_db
 from app.schemas.detail import MeetingDetailResponse
 from app.schemas.related_link import RelatedLinkOut
 from app.schemas.meeting import (
+    MeetingArchiveBody,
     MeetingContextPatch,
     MeetingMetadata,
     MeetingNotionRecapRequest,
     MeetingNotionRecapResponse,
+    ReExtractActionsResponse,
 )
 from app.schemas.common import parse_oid
 from app.schemas.participant import MeetingParticipantOut, MeetingTeamMemberCreate
@@ -27,6 +31,7 @@ from app.services.meetings import get_meeting_or_none, load_meeting_detail
 from app.services.related_links import effective_related_links
 from app.services.meeting_notion_recap import post_meeting_notion_recap, verify_internal_secret
 from app.services.team_roster import add_meeting_team_member
+from app.services.transcript_extraction import re_extract_action_items_for_meeting
 
 router = APIRouter()
 
@@ -75,6 +80,43 @@ async def patch_meeting_context(
     assert fresh is not None
     merged = await merge_meeting_display_context(fresh)
     return MeetingMetadata(**meeting_to_metadata(fresh, merged_context=merged))
+
+
+@router.patch("/{meeting_id}/archive", response_model=MeetingMetadata)
+async def patch_meeting_archive(meeting_id: str, body: MeetingArchiveBody) -> MeetingMetadata:
+    """Hide or restore a meeting on main lists (data retained)."""
+    try:
+        oid = parse_oid(meeting_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail="Meeting not found") from e
+    m = await get_meeting_or_none(meeting_id)
+    if not m:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+    await get_db().meetings.update_one(
+        {"_id": oid},
+        {"$set": {"archived": body.archived, "updated_at": datetime.now(timezone.utc)}},
+    )
+    fresh = await get_meeting_or_none(meeting_id)
+    assert fresh is not None
+    merged = await merge_meeting_display_context(fresh)
+    return MeetingMetadata(**meeting_to_metadata(fresh, merged_context=merged))
+
+
+@router.post("/{meeting_id}/re-extract-actions", response_model=ReExtractActionsResponse)
+async def post_re_extract_actions(meeting_id: str) -> ReExtractActionsResponse:
+    """Re-run LLM extraction from the saved transcript (replaces existing action items)."""
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=503, detail="OPENAI_API_KEY is not configured")
+    try:
+        out = await re_extract_action_items_for_meeting(meeting_id.strip())
+    except ValueError as e:
+        msg = str(e)
+        if "not found" in msg.lower():
+            raise HTTPException(status_code=404, detail=msg) from e
+        if msg.startswith("OpenAI request failed"):
+            raise HTTPException(status_code=502, detail=msg) from e
+        raise HTTPException(status_code=400, detail=msg) from e
+    return ReExtractActionsResponse(**out)
 
 
 @router.post(

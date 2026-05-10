@@ -49,7 +49,7 @@ export function ActivityPage() {
   if (!rows) return <p className="muted">Loading activity…</p>
 
   return (
-    <>
+    <div className="page-shell--wide">
       <h1>Activity</h1>
       <p className="page-lead muted">
         Orchestration and automation: Jira, Confluence, calendar, approvals, and manual triggers. Newest
@@ -84,7 +84,7 @@ export function ActivityPage() {
           </span>
         )}
       </div>
-      <div className="table-wrap">
+      <div className="table-wrap table-wrap--activity">
         <table className="activity-table">
           <thead>
             <tr>
@@ -142,6 +142,6 @@ export function ActivityPage() {
           </tbody>
         </table>
       </div>
-    </>
+    </div>
   )
 }

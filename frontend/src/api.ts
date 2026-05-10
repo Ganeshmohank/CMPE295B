@@ -22,6 +22,7 @@ import type {
   ProjectListItem,
   ReviewQueuePage,
   ActivityPage,
+  ReExtractActionsResponse,
 } from './types'
 
 /** Production: set VITE_API_BASE_URL=https://your-api.example.com (no trailing slash). Dev: leave unset to use Vite proxy. */
@@ -60,6 +61,7 @@ export const api = {
     pipeline?: string
     focus_pending?: boolean
     sort?: string
+    archived_only?: boolean
   }): Promise<MeetingsListPage | null> => {
     const q = new URLSearchParams()
     q.set('page', String(params.page ?? 1))
@@ -69,11 +71,22 @@ export const api = {
       q.set('pipeline', params.pipeline)
     }
     if (params.focus_pending) q.set('focus_pending', 'true')
+    if (params.archived_only) q.set('archived_only', 'true')
     if (params.sort != null && params.sort !== '') q.set('sort', params.sort)
     return json<unknown>(`/api/dashboard/meetings?${q}`).then(normalizeMeetingsListPage)
   },
   meetingDetail: (id: string) =>
     json<MeetingDetailResponse>(`/api/meetings/${encodeURIComponent(id)}`),
+  postReExtractActions: (meetingId: string) =>
+    json<ReExtractActionsResponse>(
+      `/api/meetings/${encodeURIComponent(meetingId)}/re-extract-actions`,
+      { method: 'POST', body: '{}' },
+    ),
+  patchMeetingArchive: (meetingId: string, archived: boolean) =>
+    json<MeetingMetadata>(`/api/meetings/${encodeURIComponent(meetingId)}/archive`, {
+      method: 'PATCH',
+      body: JSON.stringify({ archived }),
+    }),
   postNotionMeetingRecap: (meetingId: string, body?: { force?: boolean }) =>
     json<MeetingNotionRecapResponse>(
       `/api/meetings/${encodeURIComponent(meetingId)}/notion-recap`,

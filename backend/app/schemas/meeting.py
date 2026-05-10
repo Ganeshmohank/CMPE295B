@@ -47,6 +47,7 @@ class MeetingListItem(BaseModel):
     action_items_count: int = 0
     pending_review_count: int = 0
     transcript_length: int | None = None
+    archived: bool = False
 
 
 class MeetingMetadata(BaseModel):
@@ -58,6 +59,7 @@ class MeetingMetadata(BaseModel):
     status: MeetingStatus
     processing_status: ProcessingStatus
     participants_count: int
+    archived: bool = False
     project_id: str | None = Field(default=None, description="Linked projects._id when normalized")
     project_theme: str | None = Field(default=None)
     context_developer: str | None = Field(default=None)
@@ -65,6 +67,15 @@ class MeetingMetadata(BaseModel):
     notion_recap: NotionRecapOut | None = Field(
         default=None, description="Notion page created for meeting recap when posted"
     )
+
+
+class MeetingArchiveBody(BaseModel):
+    archived: bool
+
+
+class ReExtractActionsResponse(BaseModel):
+    extracted_count: int
+    processing_time_ms: int
 
 
 class MeetingContextPatch(BaseModel):

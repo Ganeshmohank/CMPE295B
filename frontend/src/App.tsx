@@ -24,6 +24,7 @@ function AppMain() {
       <Routes>
         <Route path="/" element={<DashboardHome />} />
         <Route path="/meetings" element={<MeetingsList />} />
+        <Route path="/archived-meetings" element={<MeetingsList archivedOnly />} />
         <Route path="/meetings/:id" element={<MeetingDetailPage />} />
         <Route path="/action-items/:itemId" element={<ActionItemDetailPage />} />
         <Route path="/review" element={<ReviewQueuePage />} />

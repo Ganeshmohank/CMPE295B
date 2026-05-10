@@ -64,6 +64,12 @@ export function NavSidebar() {
         <NavLink className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')} to="/logs">
           Pipeline logs
         </NavLink>
+        <NavLink
+          className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')}
+          to="/archived-meetings"
+        >
+          Archived meetings
+        </NavLink>
         <NavLink className={({ isActive }) => 'nav-link' + (isActive ? ' active' : '')} to="/connected-apps">
           Connected apps
         </NavLink>

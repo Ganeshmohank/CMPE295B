@@ -255,13 +255,17 @@ async def meetings_with_action_counts() -> list[dict]:
 async def meetings_list_summary() -> dict[str, int]:
     """Lightweight aggregates for meetings list KPIs (no per-meeting joins)."""
     db = get_db()
-    tm = await db.meetings.count_documents({})
+    active_meetings_filter = {"archived": {"$ne": True}}
+    tm = await db.meetings.count_documents(active_meetings_filter)
     tai = await db.action_items.count_documents({})
     tpr = await db.action_items.count_documents(
         {"status": ActionItemStatus.PENDING_REVIEW.value}
     )
     seats_cur = db.meetings.aggregate(
-        [{"$group": {"_id": None, "t": {"$sum": "$participants_count"}}}]
+        [
+            {"$match": active_meetings_filter},
+            {"$group": {"_id": None, "t": {"$sum": "$participants_count"}}},
+        ]
     )
     seats_docs = await seats_cur.to_list(1)
     tseats = int(seats_docs[0]["t"]) if seats_docs else 0
@@ -292,6 +296,7 @@ async def meetings_list_paginated(
     processing_status: str | None,
     focus_pending: bool,
     sort: str,
+    archived_only: bool = False,
 ) -> tuple[list[dict], int]:
     """Filter/sort meetings with action-item counts; return one page + total matching count."""
     db = get_db()
@@ -301,6 +306,10 @@ async def meetings_list_paginated(
 
     stages: list[dict[str, Any]] = []
     early: dict[str, Any] = {}
+    if archived_only:
+        early["archived"] = True
+    else:
+        early["archived"] = {"$ne": True}
     if q and q.strip():
         esc = re.escape(q.strip())
         early["$or"] = [
@@ -309,8 +318,7 @@ async def meetings_list_paginated(
         ]
     if processing_status and processing_status.strip().lower() not in ("", "all"):
         early["processing_status"] = processing_status.strip()
-    if early:
-        stages.append({"$match": early})
+    stages.append({"$match": early})
 
     stages.extend(
         [

@@ -14,7 +14,19 @@ def _parse_date(v: Any) -> date | None:
     if isinstance(v, datetime):
         return v.date()
     if isinstance(v, str):
-        return date.fromisoformat(v[:10])
+        s = v.strip()
+        if not s:
+            return None
+        head = s[:10]
+        if len(head) == 10 and head[4] == "-" and head[7] == "-":
+            try:
+                return date.fromisoformat(head)
+            except ValueError:
+                pass
+        try:
+            return date.fromisoformat(s)
+        except ValueError:
+            return None
     return None
 
 
@@ -97,6 +109,7 @@ def meeting_to_metadata(doc: dict, merged_context: dict | None = None) -> dict:
         "status": doc["status"],
         "processing_status": doc["processing_status"],
         "participants_count": doc.get("participants_count", 0),
+        "archived": bool(doc.get("archived")),
         "project_id": ctx.get("project_id"),
         "project_theme": ctx.get("project_theme"),
         "context_developer": ctx.get("context_developer"),

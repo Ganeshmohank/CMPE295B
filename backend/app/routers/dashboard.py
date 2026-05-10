@@ -97,6 +97,7 @@ async def dashboard_meetings_list(
         description="Meetings.processing_status, or omit / 'all' for any",
     ),
     focus_pending: bool = Query(False, description="Only meetings with pending_review action items"),
+    archived_only: bool = Query(False, description="List only archived meetings"),
     sort: str = Query(
         "date_desc",
         description="date_desc | date_asc | title | actions_desc | pending_first",
@@ -115,6 +116,7 @@ async def dashboard_meetings_list(
         q=q,
         processing_status=proc_f,
         focus_pending=focus_pending,
+        archived_only=archived_only,
         sort=sort_key,
     )
     summary_task = meetings_list_summary()
@@ -133,6 +135,7 @@ async def dashboard_meetings_list(
             action_items_count=r.get("action_items_count", 0),
             pending_review_count=int(r.get("pending_review_count", 0)),
             transcript_length=_coerce_int_optional(r.get("transcript_length")),
+            archived=bool(r.get("archived")),
         )
         for r in rows
     ]

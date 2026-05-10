@@ -57,6 +57,7 @@ export interface MeetingListItem {
   action_items_count: number
   pending_review_count: number
   transcript_length: number | null
+  archived?: boolean
 }
 
 export interface MeetingsListSummary {
@@ -174,6 +175,7 @@ export interface MeetingMetadata {
   status: MeetingStatus
   processing_status: ProcessingStatus
   participants_count: number
+  archived?: boolean
   project_id: string | null
   project_theme: string | null
   context_developer: string | null
@@ -187,6 +189,11 @@ export interface MeetingNotionRecapResponse {
   notion_url: string | null
   page_id: string | null
   mock: boolean | null
+}
+
+export interface ReExtractActionsResponse {
+  extracted_count: number
+  processing_time_ms: number
 }
 
 export interface MeetingDetailResponse {

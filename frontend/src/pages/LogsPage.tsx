@@ -86,7 +86,7 @@ export function LogsPage() {
   if (!rows) return <p className="muted">Loading logs…</p>
 
   return (
-    <>
+    <div className="page-shell--wide">
       <h1>Processing logs</h1>
       <p className="page-lead muted">
         Timestamps use <strong>{APP_TIMEZONE}</strong> (Pacific time, PDT/PST).
@@ -142,7 +142,7 @@ export function LogsPage() {
         </span>
       </div>
       <div className="table-wrap">
-        <table>
+        <table className="logs-page-table">
           <thead>
             <tr>
               <th>Timestamp (Pacific)</th>
@@ -192,6 +192,6 @@ export function LogsPage() {
           </button>
         </nav>
       )}
-    </>
+    </div>
   )
 }

@@ -57,7 +57,7 @@ function sortToApi(s: SortKey): string {
   return 'date_desc'
 }
 
-export function MeetingsList() {
+export function MeetingsList({ archivedOnly = false }: { archivedOnly?: boolean }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [pageData, setPageData] = useState<MeetingsListPage | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -132,7 +132,8 @@ export function MeetingsList() {
         page_size: PAGE_SIZE,
         q: debouncedQ || undefined,
         pipeline: procFilterForFetch === 'all' ? undefined : procFilterForFetch,
-        focus_pending: focusPendingForFetch,
+        focus_pending: archivedOnly ? false : focusPendingForFetch,
+        archived_only: archivedOnly,
         sort: sortToApi(sortKeyForFetch),
       })
       .then((d) => {
@@ -167,6 +168,7 @@ export function MeetingsList() {
     debouncedQ,
     procFilterForFetch,
     focusPendingForFetch,
+    archivedOnly,
     sortKeyForFetch,
     searchParams,
     setSearchParams,
@@ -226,16 +228,20 @@ export function MeetingsList() {
   return (
     <>
       <div className="page-header">
-        <h1>Meetings</h1>
+        <h1>{archivedOnly ? 'Archived meetings' : 'Meetings'}</h1>
         <p className="page-subtitle">
-          Browse captured sessions, pipeline state, transcript size, and how many action items need
-          review. Up to {PAGE_SIZE} rows per page; filters sync with the URL.
+          {archivedOnly
+            ? 'Meetings you archived are hidden from the main list. Times are shown in Pacific (Los Angeles).'
+            : 'Browse captured sessions, pipeline state, transcript size, and how many action items need review. Times are shown in Pacific (Los Angeles). Up to ' +
+              PAGE_SIZE +
+              ' rows per page; filters sync with the URL.'}
         </p>
       </div>
 
       {(searchParams.has('pipeline') ||
         searchParams.has('sort') ||
-        searchParams.get('focus') === 'pending') && (
+        searchParams.get('focus') === 'pending') &&
+        !archivedOnly && (
         <p className="filter-banner muted">
           Filtered view (from dashboard or URL).{' '}
           <button type="button" className="filter-banner__clear filter-banner__clear--btn" onClick={resetListFilters}>
@@ -244,7 +250,7 @@ export function MeetingsList() {
         </p>
       )}
 
-      {summary && (
+      {summary && !archivedOnly && (
         <div className="meetings-kpis" aria-label="Meeting list totals — click to filter">
           <button
             type="button"
@@ -357,6 +363,7 @@ export function MeetingsList() {
                     </div>
                   </div>
                   <div className="meeting-card__tags">
+                    {m.archived ? <span className="pill pill-neutral">archived</span> : null}
                     <span className={meetPill(m.status)}>{meetLabel(m.status)}</span>
                     <span className={procPill(m.processing_status)}>{procLabel(m.processing_status)}</span>
                   </div>

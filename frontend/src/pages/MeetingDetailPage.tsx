@@ -21,7 +21,7 @@ import type {
   RelatedLinkOut,
 } from '../types'
 
-import { formatPacificDateTimeTz } from '../lib/format'
+import { formatPacificDateTimeTz, fmtMs } from '../lib/format'
 
 const SUGGESTION_CAP = 20
 const RELATED_PAGE_SIZE = 10
@@ -87,7 +87,7 @@ function RelatedContentPanel({
 
   const shell =
     placement === 'stack'
-      ? 'panel panel--elevated related-panel related-panel--stack'
+      ? `panel panel--elevated related-panel related-panel--stack${links.length === 0 ? ' panel--compact' : ''}`
       : 'rail-card related-panel related-panel--beside'
 
   return (
@@ -205,6 +205,7 @@ export function MeetingDetailPage() {
   const [actionBusy, setActionBusy] = useState<string | null>(null)
   const [actionMsg, setActionMsg] = useState<string | null>(null)
   const [bulkConfirmKind, setBulkConfirmKind] = useState<'approve' | 'reject' | null>(null)
+  const [archiveConfirmKind, setArchiveConfirmKind] = useState<'archive' | 'restore' | null>(null)
   const [transcriptText, setTranscriptText] = useState('')
   const [transcriptOriginal, setTranscriptOriginal] = useState('')
   const [transcriptSaving, setTranscriptSaving] = useState(false)
@@ -212,6 +213,8 @@ export function MeetingDetailPage() {
   const [notionRecapMsg, setNotionRecapMsg] = useState<string | null>(null)
   const [notionBackgroundActive, setNotionBackgroundActive] = useState(false)
   const [postApproveJobsWarmup, setPostApproveJobsWarmup] = useState(false)
+  const [reExtractBusy, setReExtractBusy] = useState(false)
+  const [archiveBusy, setArchiveBusy] = useState(false)
   const notionPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const approveWarmupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** When trace says recap succeeded but meeting payload has no recap meta (stale cache), poll once per meeting id. */
@@ -222,6 +225,15 @@ export function MeetingDetailPage() {
     if (!data) return 0
     return data.action_items.filter((a) => a.status === 'pending_review').length
   }, [data])
+
+  const transcriptRows = useMemo(() => {
+    const text = transcriptText.trim()
+    if (!text) return 2
+
+    const hardLines = text.split(/\r\n|\r|\n/).length
+    const softLines = Math.ceil(text.length / 95)
+    return Math.min(7, Math.max(4, hardLines + softLines))
+  }, [transcriptText])
 
   const notionRecapLogs = useMemo(() => {
     if (!data) return []
@@ -656,6 +668,50 @@ export function MeetingDetailPage() {
     }
   }
 
+  async function reExtractActionsImpl() {
+    if (!id) return
+    const raw = transcriptText.trim()
+    if (!raw) {
+      setActionMsg('Add or save a transcript first, then re-run extraction.')
+      return
+    }
+    setReExtractBusy(true)
+    setActionMsg(null)
+    try {
+      const r = await api.postReExtractActions(id)
+      setActionMsg(
+        `Re-extracted ${r.extracted_count} action item(s) (${fmtMs(r.processing_time_ms)}). All previous items for this meeting were replaced.`,
+      )
+      notifySummaryStale()
+      invalidateMeetingDetailCache(id)
+      const d = await api.meetingDetail(id)
+      writeMeetingDetailCache(id, d)
+      setData(d)
+    } catch (e) {
+      setActionMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setReExtractBusy(false)
+    }
+  }
+
+  async function applyMeetingArchiveChange(next: boolean) {
+    if (!id) return
+    setArchiveBusy(true)
+    setActionMsg(null)
+    try {
+      await api.patchMeetingArchive(id, next)
+      notifySummaryStale()
+      invalidateMeetingDetailCache(id)
+      const d = await api.meetingDetail(id)
+      writeMeetingDetailCache(id, d)
+      setData(d)
+    } catch (e) {
+      setActionMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setArchiveBusy(false)
+    }
+  }
+
   if (!id) return <p className="muted">Missing meeting id.</p>
   if (err && isMeetingNotFoundError(err)) {
     return (
@@ -711,8 +767,35 @@ export function MeetingDetailPage() {
           else if (kind === 'reject') void bulkRejectPendingActionsImpl()
         }}
       />
+      <ConfirmDialog
+        open={archiveConfirmKind !== null}
+        title={
+          archiveConfirmKind === 'archive'
+            ? 'Archive this meeting?'
+            : 'Restore this meeting?'
+        }
+        message={
+          archiveConfirmKind === 'archive'
+            ? 'It will disappear from the main Meetings list but stay available under Archived meetings.'
+            : 'It will show again on the main Meetings list.'
+        }
+        confirmLabel={
+          archiveConfirmKind === 'archive' ? 'Archive meeting' : 'Restore to meetings'
+        }
+        cancelLabel="Cancel"
+        variant={archiveConfirmKind === 'archive' ? 'danger' : 'default'}
+        onCancel={() => setArchiveConfirmKind(null)}
+        onConfirm={() => {
+          const kind = archiveConfirmKind
+          setArchiveConfirmKind(null)
+          if (kind === 'archive') void applyMeetingArchiveChange(true)
+          else if (kind === 'restore') void applyMeetingArchiveChange(false)
+        }}
+      />
       <p className="detail-back">
-        <Link to="/meetings">← Back to meetings</Link>
+        <Link to={meeting.archived ? '/archived-meetings' : '/meetings'}>
+          ← Back to {meeting.archived ? 'archived meetings' : 'meetings'}
+        </Link>
       </p>
 
       <div className="detail-page detail-page--meeting">
@@ -723,12 +806,55 @@ export function MeetingDetailPage() {
             {(meeting.duration_minutes ?? 0) > 0 ? `${meeting.duration_minutes} min` : 'Duration —'} ·{' '}
             {meeting.participants_count} people · {meeting.source} · {meeting.status} ·{' '}
             {meeting.processing_status}
+            {' · '}
+            <span title="America/Los_Angeles">Pacific time</span>
           </p>
+          {meeting.archived ? (
+            <p className="detail-archived-banner muted" role="status">
+              This meeting is <strong>archived</strong> (hidden from the main list).
+            </p>
+          ) : null}
+          <div className="detail-meeting-toolbar btn-row">
+            <button
+              type="button"
+              className="btn btn-ghost btn--sm"
+              disabled={reExtractBusy || archiveBusy || !transcript}
+              onClick={() => void reExtractActionsImpl()}
+              title={
+                transcript
+                  ? 'Replaces every action item for this meeting. Uses the saved transcript plus meeting context (initiative + engineering/PM fields). OpenAI skips vague or unclear tasks. Save the transcript first if you edited it without saving.'
+                  : 'No transcript on file'
+              }
+            >
+              {reExtractBusy ? 'Re-extracting…' : 'Re-extract action items'}
+            </button>
+            {meeting.archived ? (
+              <button
+                type="button"
+                className="btn btn-primary btn--sm"
+                disabled={archiveBusy || reExtractBusy || archiveConfirmKind !== null}
+                onClick={() => setArchiveConfirmKind('restore')}
+              >
+                {archiveBusy ? 'Updating…' : 'Restore to meetings'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-ghost btn--sm btn--danger-outline"
+                disabled={archiveBusy || reExtractBusy || archiveConfirmKind !== null}
+                onClick={() => setArchiveConfirmKind('archive')}
+              >
+                {archiveBusy ? 'Updating…' : 'Archive meeting'}
+              </button>
+            )}
+          </div>
         </header>
 
         <div className="detail-page__split">
         <div className="detail-page__primary">
-        <section className="detail-block detail-block--transcript panel panel--elevated">
+        <section
+          className={`detail-block detail-block--transcript panel panel--elevated${transcript ? '' : ' panel--compact'}`}
+        >
           <div className="panel__h-row">
             <h3 className="panel__h">Transcript</h3>
             {transcript && transcriptText !== transcriptOriginal && (
@@ -755,6 +881,7 @@ export function MeetingDetailPage() {
           {transcript ? (
             <textarea
               className="transcript-box transcript-box--editable"
+              rows={transcriptRows}
               value={transcriptText}
               onChange={(e) => setTranscriptText(e.target.value)}
             />
@@ -865,19 +992,34 @@ export function MeetingDetailPage() {
 
         <section
           id="action-review"
-          className="detail-block detail-block--actions panel panel--elevated"
+          className={`detail-block detail-block--actions panel panel--elevated${action_items.length === 0 ? ' panel--compact' : ''}`}
           aria-label="Extracted action items"
         >
           <div className="actions-panel-head">
             <h3 className="panel__h">Extracted action items</h3>
-            {id && pendingActionCount > 0 && (
-              <Link
-                className="btn btn-ghost btn--sm actions-panel-head__link"
-                to={`/review?meeting=${encodeURIComponent(id)}`}
+            <div className="actions-panel-head__actions">
+              <button
+                type="button"
+                className="btn btn-ghost btn--sm"
+                disabled={reExtractBusy || archiveBusy || !transcript || actionBusy !== null}
+                onClick={() => void reExtractActionsImpl()}
+                title={
+                  transcript
+                    ? 'Same as toolbar: replaces all items from saved transcript + meeting context; vague tasks omitted. Save transcript if needed.'
+                    : 'No transcript on file'
+                }
               >
-                Open review queue ({pendingActionCount} awaiting)
-              </Link>
-            )}
+                {reExtractBusy ? 'Re-extracting…' : 'Re-extract'}
+              </button>
+              {id && pendingActionCount > 0 && (
+                <Link
+                  className="btn btn-ghost btn--sm actions-panel-head__link"
+                  to={`/review?meeting=${encodeURIComponent(id)}`}
+                >
+                  Open review queue ({pendingActionCount} awaiting)
+                </Link>
+              )}
+            </div>
           </div>
           {actionMsg && <p className="actions-panel-msg muted">{actionMsg}</p>}
           {action_items.length === 0 ? (

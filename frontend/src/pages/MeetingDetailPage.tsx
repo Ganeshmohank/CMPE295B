@@ -1124,15 +1124,15 @@ export function MeetingDetailPage() {
 
         <section className="detail-block detail-block--logs panel panel--elevated">
           <h3 className="panel__h">Processing logs</h3>
-          <div className="table-wrap table-wrap--plain">
-            <table>
+          <div className="table-wrap table-wrap--plain table-wrap--processing-logs">
+            <table className="processing-logs-table">
               <thead>
                 <tr>
-                  <th>Time</th>
-                  <th>Stage</th>
-                  <th>Status</th>
-                  <th>Message</th>
-                  <th>Ms</th>
+                  <th scope="col">Time</th>
+                  <th scope="col">Stage</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Message</th>
+                  <th scope="col">Ms</th>
                 </tr>
               </thead>
               <tbody>

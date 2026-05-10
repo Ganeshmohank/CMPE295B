@@ -141,16 +141,16 @@ export function LogsPage() {
           {total === 0 ? 'No rows' : `Rows ${from}–${to} of ${total}`}
         </span>
       </div>
-      <div className="table-wrap">
+      <div className="table-wrap table-wrap--logs-page">
         <table className="logs-page-table">
           <thead>
             <tr>
-              <th>Timestamp (Pacific)</th>
-              <th>Meeting</th>
-              <th>Stage</th>
-              <th>Status</th>
-              <th>Message</th>
-              <th>Ms</th>
+              <th scope="col">Timestamp (Pacific)</th>
+              <th scope="col">Meeting</th>
+              <th scope="col">Stage</th>
+              <th scope="col">Status</th>
+              <th scope="col">Message</th>
+              <th scope="col">Ms</th>
             </tr>
           </thead>
           <tbody>

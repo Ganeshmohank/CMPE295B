@@ -1644,6 +1644,107 @@ a.btn:hover {
   font-size: 0.82rem;
 }
 
+/* /logs pipeline table: compact identifier columns don’t mid-word break; message wraps */
+.table-wrap--logs-page {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(124, 158, 255, 0.35) transparent;
+}
+
+.table-wrap--logs-page:hover {
+  scrollbar-color: var(--border) rgba(15, 18, 26, 0.35);
+}
+
+.table-wrap--logs-page::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.table-wrap--logs-page::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.table-wrap--logs-page::-webkit-scrollbar-thumb {
+  background: rgba(124, 158, 255, 0.28);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.table-wrap--logs-page::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 158, 255, 0.55);
+  background-clip: padding-box;
+}
+
+.table-wrap--logs-page::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.logs-page-table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+}
+
+.logs-page-table th,
+.logs-page-table td {
+  vertical-align: top;
+}
+
+.logs-page-table th:nth-child(1),
+.logs-page-table td:nth-child(1) {
+  white-space: nowrap;
+  min-width: 14.5rem;
+}
+
+.logs-page-table th:nth-child(2),
+.logs-page-table td:nth-child(2) {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.logs-page-table th:nth-child(3),
+.logs-page-table td:nth-child(3) {
+  white-space: nowrap;
+  min-width: 11rem;
+}
+
+.logs-page-table th:nth-child(4),
+.logs-page-table td:nth-child(4) {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.logs-page-table th:nth-child(5),
+.logs-page-table td:nth-child(5) {
+  min-width: min(100%, 14rem);
+  max-width: min(52rem, 85vw);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.logs-page-table th:nth-child(6),
+.logs-page-table td:nth-child(6) {
+  white-space: nowrap;
+  width: 1%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 700px) {
+  .logs-page-table th:nth-child(3),
+  .logs-page-table td:nth-child(3) {
+    white-space: normal;
+    min-width: 8rem;
+  }
+
+  .logs-page-table th:nth-child(5),
+  .logs-page-table td:nth-child(5) {
+    max-width: none;
+  }
+}
+
 .detail-grid {
   display: grid;
   gap: 1rem;
@@ -2256,6 +2357,107 @@ a.btn:hover {
   margin-bottom: 0.45rem;
 }
 
+/* Processing logs: avoid crushed Time column; message column uses remaining width */
+.detail-page--meeting .detail-block--logs .table-wrap--processing-logs {
+  max-height: min(48vh, 26rem);
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(124, 158, 255, 0.35) transparent;
+}
+
+.detail-page--meeting .detail-block--logs .table-wrap--processing-logs:hover {
+  scrollbar-color: var(--border) rgba(15, 18, 26, 0.35);
+}
+
+.detail-page--meeting .detail-block--logs .table-wrap--processing-logs::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.detail-page--meeting .detail-block--logs .table-wrap--processing-logs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.detail-page--meeting .detail-block--logs .table-wrap--processing-logs::-webkit-scrollbar-thumb {
+  background: rgba(124, 158, 255, 0.28);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.detail-page--meeting .detail-block--logs .table-wrap--processing-logs::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 158, 255, 0.55);
+  background-clip: padding-box;
+}
+
+.detail-page--meeting .detail-block--logs .table-wrap--processing-logs::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.detail-page--meeting .processing-logs-table {
+  width: max-content;
+  min-width: 100%;
+  table-layout: auto;
+}
+
+.detail-page--meeting .processing-logs-table th,
+.detail-page--meeting .processing-logs-table td {
+  vertical-align: top;
+}
+
+.detail-page--meeting .processing-logs-table th:nth-child(1),
+.detail-page--meeting .processing-logs-table td:nth-child(1) {
+  white-space: nowrap;
+  min-width: 14.5rem;
+}
+
+.detail-page--meeting .processing-logs-table th:nth-child(2),
+.detail-page--meeting .processing-logs-table td:nth-child(2) {
+  white-space: nowrap;
+  min-width: 10.75rem;
+}
+
+.detail-page--meeting .processing-logs-table th:nth-child(3),
+.detail-page--meeting .processing-logs-table td:nth-child(3) {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.detail-page--meeting .processing-logs-table th:nth-child(4),
+.detail-page--meeting .processing-logs-table td:nth-child(4) {
+  min-width: min(100%, 14rem);
+  max-width: min(42rem, 100%);
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.detail-page--meeting .processing-logs-table th:nth-child(5),
+.detail-page--meeting .processing-logs-table td:nth-child(5) {
+  white-space: nowrap;
+  width: 1%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 700px) {
+  .detail-page--meeting .processing-logs-table th:nth-child(2),
+  .detail-page--meeting .processing-logs-table td:nth-child(2) {
+    white-space: normal;
+    min-width: 8rem;
+  }
+
+  .detail-page--meeting .processing-logs-table th:nth-child(4),
+  .detail-page--meeting .processing-logs-table td:nth-child(4) {
+    max-width: none;
+  }
+}
+
 .detail-page--meeting .detail-block--related-wrap {
   display: flex;
   flex-direction: column;
@@ -2472,18 +2674,6 @@ a.btn:hover {
   .detail-page--meeting .detail-block--related-wrap .related-panel--beside .related-links {
     max-height: min(38vh, 18rem);
   }
-
-  .detail-page--meeting .detail-block--logs .table-wrap--plain {
-    max-height: min(48vh, 24rem);
-    overflow: auto;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-  }
-
-  .detail-page--meeting .detail-block--logs table {
-    width: 100%;
-    min-width: 640px;
-  }
 }
 
 .page-shell--wide {
@@ -2496,23 +2686,6 @@ a.btn:hover {
   .table-wrap--activity .activity-table {
     width: 100%;
     max-width: none;
-  }
-
-  .logs-page-table {
-    width: max(100%, 48rem);
-    table-layout: auto;
-  }
-
-  .logs-page-table th,
-  .logs-page-table td {
-    vertical-align: top;
-    word-break: break-word;
-    overflow-wrap: anywhere;
-  }
-
-  .logs-page-table td:last-child {
-    white-space: normal;
-    max-width: 36rem;
   }
 }
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import type { ActivityLogItem } from '../types'
+import { APP_TIMEZONE, formatPacificDateTimeTz } from '../lib/format'
 
 const PAGE_SIZE = 20
 
@@ -52,7 +53,7 @@ export function ActivityPage() {
       <h1>Activity</h1>
       <p className="page-lead muted">
         Orchestration and automation: Jira, Confluence, calendar, approvals, and manual triggers. Newest
-        first.
+        first. Times: <strong>{APP_TIMEZONE}</strong>.
       </p>
       {err && <div className="error-banner">{err}</div>}
       <div className="filters activity-filters">
@@ -107,7 +108,7 @@ export function ActivityPage() {
               rows.map((r) => (
                 <tr key={r.id} className="activity-row">
                   <td className="activity-ts" data-label="When">
-                    {new Date(r.created_at).toLocaleString()}
+                    {formatPacificDateTimeTz(r.created_at)}
                   </td>
                   <td data-label="Source">
                     <span className="activity-source">{r.triggered_by}</span>

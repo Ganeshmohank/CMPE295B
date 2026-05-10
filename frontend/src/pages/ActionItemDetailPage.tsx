@@ -4,34 +4,10 @@ import { api } from '../api'
 import { invalidateMeetingDetailCache } from '../lib/meetingDetailCache'
 import { notifySummaryStale } from '../lib/summarySync'
 import type { ActionItemOut, ActionItemStatus, Priority } from '../types'
+import { formatPacificDateTimeTz } from '../lib/format'
 
-const PACIFIC_TZ = 'America/Los_Angeles'
-
-function formatPacific(iso: string | null | undefined): string {
-  if (iso == null || iso === '') return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: PACIFIC_TZ,
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(d)
-}
-
-/** Execution trail: time in Pacific with zone abbreviation (PST/PDT). */
 function formatPacificLogTime(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: PACIFIC_TZ,
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true,
-    timeZoneName: 'short',
-  }).format(d)
+  return formatPacificDateTimeTz(iso)
 }
 
 interface ExecutionLog {
@@ -91,6 +67,24 @@ function triggeredByLabel(triggeredBy: string): string {
 
 function strField(v: unknown): string | undefined {
   return typeof v === 'string' && v.trim() ? v : undefined
+}
+
+/** Jira vs Confluence (etc.): backend sets `url` for both, but only Jira sets `ticket_id`. */
+function executionLogExternalLink(
+  details: Record<string, unknown>,
+): { href: string; label: string } | null {
+  const url = strField(details.url)
+  if (!url) return null
+  if (strField(details.ticket_id) || strField(details.issue_key)) {
+    return { href: url, label: 'Open ticket →' }
+  }
+  const pageId = details.page_id
+  const hasPageId =
+    (typeof pageId === 'string' && pageId.trim() !== '') || typeof pageId === 'number'
+  if (hasPageId || details.action === 'comment_added') {
+    return { href: url, label: 'Open Confluence page →' }
+  }
+  return { href: url, label: 'Open link →' }
 }
 
 function CalendarLogBlock({ details }: { details: Record<string, unknown> }) {
@@ -497,7 +491,9 @@ export function ActionItemDetailPage() {
               </p>
             ) : (
               <ul className="execution-logs__list">
-                {executionLogs.map((log) => (
+                {executionLogs.map((log) => {
+                  const extLink = log.details ? executionLogExternalLink(log.details) : null
+                  return (
                   <li key={log.id} className="execution-log">
                     <div className="execution-log__head">
                       <span className={`execution-log__status execution-log__status--${log.status}`} />
@@ -512,16 +508,16 @@ export function ActionItemDetailPage() {
                       <div className="execution-log__details">
                         <CalendarLogBlock details={log.details} />
                         <div className="execution-log__chips">
-                          {!!log.details.ticket_id && (
+                          {extLink ? (
                             <a
-                              href={log.details.url as string}
+                              href={extLink.href}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="execution-log__link"
                             >
-                              Open ticket →
+                              {extLink.label}
                             </a>
-                          )}
+                          ) : null}
                           {!!log.details.ticket_type && (
                             <span className="execution-log__detail-chip">
                               {log.details.ticket_type as string}
@@ -547,7 +543,8 @@ export function ActionItemDetailPage() {
                       </div>
                     )}
                   </li>
-                ))}
+                  )
+                })}
               </ul>
             )}
           </section>
@@ -713,7 +710,7 @@ export function ActionItemDetailPage() {
                 <div>
                   <span className="meta-pair__k">Approved at</span>
                   <span className="meta-pair__v">
-                    <time dateTime={item.approved_at}>{formatPacific(item.approved_at)}</time> PT
+                    <time dateTime={item.approved_at}>{formatPacificDateTimeTz(item.approved_at)}</time>
                   </span>
                 </div>
               ) : null}
@@ -730,7 +727,7 @@ export function ActionItemDetailPage() {
                 <span className="meta-pair__v">
                   {item.created_at ? (
                     <>
-                      <time dateTime={item.created_at}>{formatPacific(item.created_at)}</time> PT
+                      <time dateTime={item.created_at}>{formatPacificDateTimeTz(item.created_at)}</time>
                     </>
                   ) : (
                     '—'

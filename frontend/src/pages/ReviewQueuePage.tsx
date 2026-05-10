@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { ConfirmDialog } from '../components/ConfirmDialog'
 import { InitialAvatar } from '../components/InitialAvatar'
 import { api } from '../api'
 import { invalidateMeetingDetailCache } from '../lib/meetingDetailCache'
 import { notifySummaryStale } from '../lib/summarySync'
+import { formatPacificDateTimeTz } from '../lib/format'
 import type { ActionItemReviewOut, Priority, ReviewQueuePage as ReviewQueuePageData } from '../types'
 
 const PAGE_SIZE = 10
@@ -29,7 +29,6 @@ export function ReviewQueuePage() {
   const [queue, setQueue] = useState<ReviewQueuePageData | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const [rejectMeetingId, setRejectMeetingId] = useState<string | null>(null)
 
   useEffect(() => {
     setPage(1)
@@ -104,10 +103,6 @@ export function ReviewQueuePage() {
     }
   }
 
-  function openRejectConfirm(meetingId: string) {
-    setRejectMeetingId(meetingId)
-  }
-
   if (err && !queue) return <div className="error-banner">{err}</div>
   if (!queue) {
     return (
@@ -120,28 +115,13 @@ export function ReviewQueuePage() {
 
   return (
     <>
-      <ConfirmDialog
-        open={rejectMeetingId !== null}
-        title="Reject all pending items?"
-        message="Every action item still in pending review for this meeting will be marked rejected."
-        confirmLabel="Reject all"
-        cancelLabel="Cancel"
-        variant="danger"
-        onCancel={() => setRejectMeetingId(null)}
-        onConfirm={() => {
-          const mid = rejectMeetingId
-          setRejectMeetingId(null)
-          if (mid) run(`bulk-r-${mid}`, () => api.bulkRejectMeeting(mid), mid)
-        }}
-      />
       <div className="page-header page-header--split">
         <div>
           <h1>Review queue</h1>
           <p className="page-subtitle">
             <strong>Task priority</strong> is how important the work is. <strong>Model confidence</strong>{' '}
-            is how sure the extractor is. Open a meeting to edit items and approve or reject{' '}
-            <strong>all pending items for that meeting at once</strong>. Up to {PAGE_SIZE} meetings per
-            page.
+            is how sure the extractor is. Approve or reject items one by one here, or open a meeting to use
+            bulk actions. Up to {PAGE_SIZE} meetings per page.
           </p>
         </div>
         {queue.total_pending_items > 0 && (
@@ -203,10 +183,7 @@ export function ReviewQueuePage() {
         <div className="review-meetings">
           {byMeeting.map(([meetingId, group]) => {
             const title = group[0]?.meeting_title ?? 'Meeting'
-            const when = new Date(group[0].meeting_start_time).toLocaleString(undefined, {
-              dateStyle: 'medium',
-              timeStyle: 'short',
-            })
+            const when = formatPacificDateTimeTz(group[0].meeting_start_time)
             return (
               <section key={meetingId} className="review-meeting">
                 <header className="review-meeting__head">
@@ -224,27 +201,6 @@ export function ReviewQueuePage() {
                     >
                       Review in meeting
                     </Link>
-                    <div className="review-meeting__bulk-actions">
-                      <span className="review-meeting__bulk-label muted">Bulk:</span>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn--sm"
-                        disabled={busy !== null}
-                        onClick={() =>
-                          run(`bulk-a-${meetingId}`, () => api.bulkApproveMeeting(meetingId), meetingId)
-                        }
-                      >
-                        {busy === `bulk-a-${meetingId}` ? 'Approving...' : 'Approve all'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-ghost btn--sm btn--danger-outline"
-                        disabled={busy !== null}
-                        onClick={() => openRejectConfirm(meetingId)}
-                      >
-                        Reject all
-                      </button>
-                    </div>
                   </div>
                 </header>
                 <ul className="review-item-list">

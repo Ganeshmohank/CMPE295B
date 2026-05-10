@@ -1,6 +1,13 @@
 import './InitialAvatar.css'
 
-export function InitialAvatar({ name }: { name: string | null | undefined }) {
+export function InitialAvatar({
+  name,
+  className = '',
+}: {
+  name: string | null | undefined
+  /** Extra classes, e.g. `initial-avatar--sidebar`. */
+  className?: string
+}) {
   const initials = (name ?? '?')
     .split(/\s+/)
     .filter(Boolean)
@@ -13,7 +20,7 @@ export function InitialAvatar({ name }: { name: string | null | undefined }) {
 
   return (
     <span
-      className="initial-avatar"
+      className={`initial-avatar${className ? ` ${className}` : ''}`}
       style={{ background: `linear-gradient(135deg, hsl(${hue}, 45%, 38%), hsl(${(hue + 40) % 360}, 50%, 32%))` }}
       aria-hidden
     >

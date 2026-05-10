@@ -1,3 +1,7 @@
+import re
+
+from bson import ObjectId
+
 from app.db import get_db
 from app.domain.enums import LogStage, LogStatus
 
@@ -27,12 +31,18 @@ async def processing_logs_page(
     page_size: int,
     stage: LogStage | None,
     status: LogStatus | None,
+    meeting_id: ObjectId | None = None,
+    message_contains: str | None = None,
 ) -> tuple[list[dict], int]:
     q: dict = {}
     if stage is not None:
         q["stage"] = stage.value
     if status is not None:
         q["status"] = status.value
+    if meeting_id is not None:
+        q["meeting_id"] = meeting_id
+    if message_contains and message_contains.strip():
+        q["message"] = {"$regex": re.escape(message_contains.strip()), "$options": "i"}
     coll = get_db().processing_logs
     total = await coll.count_documents(q)
     page = max(1, page)

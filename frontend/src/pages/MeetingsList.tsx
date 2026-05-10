@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
-import { fmtChars, relativeTime } from '../lib/format'
+import { fmtChars, formatPacificDateTimeTz, relativeTime } from '../lib/format'
 import type { MeetingListItem, MeetingStatus, MeetingsListPage, ProcessingStatus } from '../types'
 
 const VALID_PIPELINE = new Set<ProcessingStatus>([
@@ -347,7 +347,7 @@ export function MeetingsList() {
                       {m.title}
                     </Link>
                     <div className="meeting-card__meta">
-                      <span title={new Date(m.date).toLocaleString()}>{relativeTime(m.date)}</span>
+                      <span title={formatPacificDateTimeTz(m.date)}>{relativeTime(m.date)}</span>
                       <span className="dot-sep">·</span>
                       <span>
                         {(m.duration_minutes ?? 0) > 0 ? `${m.duration_minutes} min` : 'Duration —'}

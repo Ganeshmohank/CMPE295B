@@ -147,13 +147,17 @@ export const api = {
     page_size?: number
     stage?: LogStage
     status?: LogStatus
+    meeting_id?: string
+    q?: string
   }): Promise<ProcessingLogsPage | null> => {
-    const q = new URLSearchParams()
-    q.set('page', String(params.page ?? 1))
-    q.set('page_size', String(Math.min(10, Math.max(1, params.page_size ?? 10))))
-    if (params.stage) q.set('stage', params.stage)
-    if (params.status) q.set('status', params.status)
-    return json<unknown>(`/api/logs/processing?${q}`).then(normalizeProcessingLogsPage)
+    const sp = new URLSearchParams()
+    sp.set('page', String(params.page ?? 1))
+    sp.set('page_size', String(Math.min(10, Math.max(1, params.page_size ?? 10))))
+    if (params.stage) sp.set('stage', params.stage)
+    if (params.status) sp.set('status', params.status)
+    if (params.meeting_id?.trim()) sp.set('meeting_id', params.meeting_id.trim())
+    if (params.q?.trim()) sp.set('q', params.q.trim())
+    return json<unknown>(`/api/logs/processing?${sp}`).then(normalizeProcessingLogsPage)
   },
   activity: (params?: { page?: number; page_size?: number }): Promise<ActivityPage> => {
     const q = new URLSearchParams()

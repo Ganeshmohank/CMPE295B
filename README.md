@@ -194,17 +194,66 @@ Approving an action item (single **Approve**, **Approve all** on the meeting pag
 
 ### Confluence errors on approval (e.g. HTTP 401 + HTML)
 
-Confluence uses the same **Atlassian Cloud** site and API token as Jira (`JIRA_URL`, `JIRA_API_MAIL`, `JIRA_API_KEY`). A **`401`** response whose body looks like an **HTML login page** almost always means authentication failed, not that “Confluence is down.”
+This shows up in **activity / execution logs** when the classifier runs something like **Update documentation** (Confluence comment) or you **re-trigger orchestration**—anything that calls `.../wiki/rest/api/...` with your Atlassian credentials.
 
-Checklist:
+Confluence uses the same **Atlassian Cloud** site and API token as Jira (`JIRA_URL`, `JIRA_API_MAIL`, `JIRA_API_KEY`). A **`401`** response whose body looks like an **HTML login page** (not JSON) almost always means **authentication failed** (wrong site, wrong account, expired token, or token not tied to the email you configured)—not that Confluence is down.
 
-- **`JIRA_URL`** is exactly your Cloud site root: `https://YOUR_SITE.atlassian.net` (no `/wiki`, no issue path).
-- **`JIRA_API_MAIL`** is the primary email of the Atlassian account that owns the token.
-- **`JIRA_API_KEY`** is a current [API token](https://id.atlassian.com/manage-profile/security/api-tokens) (revoke old tokens if unsure).
-- The account has **Confluence** access and permission to comment on the space you search (optional **`CONFLUENCE_SPACE_KEY`** narrows CQL search).
-- **`MCP_MODE=live`** so Confluence calls are not mocked.
+#### Checklist (fix in order)
 
-The API surfaces a shorter error message for HTML 401 responses; full troubleshooting is here in the README.
+1. **`JIRA_URL`** — Exactly your **Cloud** site root: `https://YOUR_SITE.atlassian.net`  
+   - No trailing slash.  
+   - No path segments (no `/jira`, `/wiki`, `/projects/...`).  
+   - If you previously pasted `...atlassian.net/wiki`, the backend **normalizes** that to the site root on load (so Confluence is not called at `.../wiki/wiki/rest/api/...`).  
+   - Must be **atlassian.net** (Cloud). Self-managed **Jira/Confluence Server/Data Center** uses different URLs and auth; this app’s client is built for Cloud REST + API tokens.
+
+2. **`CONFLUENCE_URL`** (optional) — Explicit wiki root: `https://YOUR_SITE.atlassian.net/wiki`.  
+   - When unset, Confluence uses **`JIRA_URL` + `/wiki`** (equivalent if both point at the same tenant).  
+   - Backend **`ConfluenceMCP`** (orchestration **Update documentation**) calls `…/wiki/rest/api/…` using this base—the same credentials you use for **mcp-atlassian** in Cursor.
+
+3. **`JIRA_API_MAIL`** — **The same Atlassian account email** you use to log in to `id.atlassian.com` and **create** the API token.  
+   - Typos or a **shared/service** mailbox that is not the token owner will cause 401.
+
+4. **`JIRA_API_KEY`** — A **current** [API token](https://id.atlassian.com/manage-profile/security/api-tokens) from that account (**not** your Atlassian password).  
+   - If you rotated or revoked the token, create a new one and update `.env`.  
+   - Avoid pasting tokens with leading/trailing spaces; **wrapping quotes in `.env` are stripped** automatically.
+
+5. **Product access** — The account must have a **Confluence** license (or site access) and permission to **view** pages returned by search and **comment** on the target space.  
+   - Optional **`CONFLUENCE_SPACE_KEY`** in `.env` limits CQL search to one space and enables a **`/content` listing fallback** if Confluence’s CQL search hits XP-Search / aggregator errors (`400` with `SSStatusCodeException`). Use the space **key** (short code from the space URL), not the display name.
+
+6. **`MCP_MODE=live`** — Otherwise Confluence calls are mocked and you won’t hit the real API.
+
+#### Quick API sanity check
+
+From a shell (replace placeholders):
+
+```bash
+export SITE=https://YOUR_SITE.atlassian.net
+export MAIL='you@company.com'
+export TOKEN='your_api_token'
+curl -sS -u "$MAIL:$TOKEN" \
+  -H 'Accept: application/json' \
+  "$SITE/wiki/rest/api/user/current" | head -c 200
+```
+
+You should see **JSON** with user fields. If you get **HTML** or **401**, fix URL + mail + token before re-running approval orchestration.
+
+**Using this repo** (same `.env` loading and **JIRA_URL** normalization as the API):
+
+```bash
+cd meeting-intelligence/backend
+source .venv/bin/activate   # if you use a venv
+python scripts/check_atlassian.py
+```
+
+The script calls Jira `GET /rest/api/3/myself` and Confluence `GET /wiki/rest/api/user/current`. Exit code **0** means both returned JSON.
+
+#### Still failing?
+
+- Confirm the site has **Confluence** (not Jira-only products).  
+- Try logging into the browser with the same email you put in **`JIRA_API_MAIL`**.  
+- Re-read **`backend/.env.example`** for all **`JIRA_*`** and **`CONFLUENCE_SPACE_KEY`** hints.
+
+The error string in the UI is abbreviated; this section is the full reference.
 
 ---
 
@@ -271,7 +320,7 @@ IDs in path parameters are **MongoDB ObjectId strings** (24 hex chars).
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/processing` | Paginated processing pipeline logs. Query: `page`, `page_size` (1–10), optional `stage`, `status` (enum filters). |
+| `GET` | `/processing` | Paginated processing pipeline logs. Query: `page`, `page_size` (1–10), optional `stage`, `status` (enum filters), optional `meeting_id` (24-hex ObjectId), optional `q` (case-insensitive substring on `message`). |
 
 ---
 

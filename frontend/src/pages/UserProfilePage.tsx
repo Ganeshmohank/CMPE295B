@@ -1,35 +1,5 @@
 import { Link } from 'react-router-dom'
-
-/** Demo profile — replace with auth + `/api/me` when you add accounts. */
-const DEMO_USER = {
-  displayName: 'Alex Rivera',
-  email: 'alex.rivera@company.example',
-  title: 'Engineering lead',
-  timezone: 'America/Los_Angeles',
-  primaryTeam: {
-    name: 'Platform & integrations',
-    id: 'team_platform',
-    role: 'Lead',
-    description: 'Owns Meeting intelligence pipelines, MCP connectors, and review workflows.',
-  },
-  orgTeams: [
-    {
-      team: 'Platform & integrations',
-      role: 'Lead',
-      access: 'Admin — meetings, projects, orchestration, connected apps',
-    },
-    {
-      team: 'Customer programs',
-      role: 'Contributor',
-      access: 'Read/write meeting context; approve action items for assigned initiatives',
-    },
-    {
-      team: 'Security review',
-      role: 'Viewer',
-      access: 'Read-only meetings and activity for SCRUM / compliance initiatives',
-    },
-  ],
-}
+import { DEMO_USER } from '../lib/demoUser'
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)

@@ -5,6 +5,7 @@ import { InitialAvatar } from '../components/InitialAvatar'
 import { api } from '../api'
 import { notifySummaryStale } from '../lib/summarySync'
 import { invalidateMeetingDetailCache } from '../lib/meetingDetailCache'
+import { formatPacificDateTimeTz } from '../lib/format'
 import type { ActionItemReviewDetailOut } from '../types'
 
 // function priorityClass(p: Priority) {
@@ -171,7 +172,7 @@ export function ReviewItemPage() {
           From{' '}
           <Link to={`/meetings/${item.meeting_id}#action-review`}>{item.meeting_title}</Link>
           {' · '}
-          {new Date(item.meeting_start_time).toLocaleString()}
+          {formatPacificDateTimeTz(item.meeting_start_time)}
           {' · '}
           <Link to={`/review?meeting=${encodeURIComponent(item.meeting_id)}`}>
             This meeting&apos;s review queue
@@ -333,7 +334,7 @@ export function ReviewItemPage() {
                   <tbody>
                     {item.processing_logs.map((l) => (
                       <tr key={l.id}>
-                        <td>{new Date(l.timestamp).toLocaleString()}</td>
+                        <td>{formatPacificDateTimeTz(l.timestamp)}</td>
                         <td>{l.stage}</td>
                         <td>{l.status}</td>
                         <td>{l.message}</td>

@@ -21,20 +21,10 @@ import type {
   RelatedLinkOut,
 } from '../types'
 
+import { formatPacificDateTimeTz } from '../lib/format'
+
 const SUGGESTION_CAP = 20
 const RELATED_PAGE_SIZE = 10
-const PACIFIC_TZ = 'America/Los_Angeles'
-
-function formatPacific(iso: string | null | undefined): string {
-  if (iso == null || iso === '') return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return '—'
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: PACIFIC_TZ,
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(d)
-}
 
 function logStageLabel(stage: string): string {
   if (stage === 'notion_recap') return 'Notion recap'
@@ -729,7 +719,7 @@ export function MeetingDetailPage() {
         <header className="detail-page__head">
           <h1 className="detail-title">{meeting.title}</h1>
           <p className="detail-lede muted">
-            {formatPacific(meeting.start_time)} PT ·{' '}
+            {formatPacificDateTimeTz(meeting.start_time)} ·{' '}
             {(meeting.duration_minutes ?? 0) > 0 ? `${meeting.duration_minutes} min` : 'Duration —'} ·{' '}
             {meeting.participants_count} people · {meeting.source} · {meeting.status} ·{' '}
             {meeting.processing_status}
@@ -796,9 +786,8 @@ export function MeetingDetailPage() {
                 <>
                   Last posted{' '}
                   <time dateTime={meeting.notion_recap.posted_at}>
-                    {formatPacific(meeting.notion_recap.posted_at)}
+                    {formatPacificDateTimeTz(meeting.notion_recap.posted_at)}
                   </time>{' '}
-                  PT
                   {notionRecapUrl ? (
                     <>
                       {' '}
@@ -866,7 +855,7 @@ export function MeetingDetailPage() {
               <ol>
                 {notionRecapLogs.map((l) => (
                   <li key={l.id}>
-                    <strong>{formatPacific(l.timestamp)} PT</strong> — {l.status}: {l.message}
+                    <strong>{formatPacificDateTimeTz(l.timestamp)}</strong> — {l.status}: {l.message}
                   </li>
                 ))}
               </ol>
@@ -966,7 +955,7 @@ export function MeetingDetailPage() {
                     {a.status === 'approved' && a.approved_at ? (
                       <p className="detail-action-approved-at muted">
                         Approved{' '}
-                        <time dateTime={a.approved_at}>{formatPacific(a.approved_at)}</time> PT
+                        <time dateTime={a.approved_at}>{formatPacificDateTimeTz(a.approved_at)}</time>
                       </p>
                     ) : null}
                   </li>
@@ -1007,7 +996,7 @@ export function MeetingDetailPage() {
               <tbody>
                 {processing_logs.map((l) => (
                   <tr key={l.id}>
-                    <td>{formatPacific(l.timestamp)} PT</td>
+                    <td>{formatPacificDateTimeTz(l.timestamp)}</td>
                     <td>{logStageLabel(l.stage)}</td>
                     <td>{l.status}</td>
                     <td>{l.message}</td>

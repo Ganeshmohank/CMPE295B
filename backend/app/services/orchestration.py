@@ -361,7 +361,7 @@ async def execute_update_documentation(
     log_id = str(log["_id"])
 
     try:
-        search_term = doc_search_term or description[:50]
+        search_term = (doc_search_term or "").strip() or f"{meeting_title} {description}".strip()[:200]
         pages = await confluence_mcp.search_pages(search_term, limit=8)
 
         if pages:
